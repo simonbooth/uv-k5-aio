@@ -24,6 +24,9 @@ enum BOOT_Mode_t
 {
     BOOT_MODE_NORMAL = 0,
     BOOT_MODE_F_LOCK,
+#ifdef ENABLE_FEAT_SERVICE_MODES
+    BOOT_MODE_RESET,   // EXIT held at power-up: the reset screen
+#endif
     #ifdef ENABLE_FEAT_F4HWN_RESCUE_OPS
         BOOT_MODE_RESCUE_OPS,
     #endif

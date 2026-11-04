@@ -112,6 +112,13 @@ enum
     #endif
 #endif
     MENU_RESET,
+#ifdef ENABLE_FEAT_SERVICE_MODES
+    MENU_SUBCODE,
+    MENU_HAM_REGION,
+    MENU_WATCH,
+    MENU_T_LIVE,
+    MENU_TX_ANY,
+#endif
     MENU_F_LOCK,
 #ifndef ENABLE_FEAT_F4HWN
     MENU_200TX,

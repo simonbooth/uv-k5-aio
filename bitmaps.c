@@ -4,6 +4,19 @@
 // all these images are on their right sides
 // turn your monitor 90-deg anti-clockwise to see the images
 
+#ifdef ENABLE_FEAT_SERVICE_MODES
+// Status-bar mode icons, 7 x 7 (bit 0 = top row).
+const uint8_t BITMAP_ModeHam[7]    = { 0x02, 0x04, 0x48, 0x7F, 0x48, 0x04, 0x02 };   // antenna
+const uint8_t BITMAP_ModeGmrs[7]   = { 0x7C, 0x57, 0x74, 0x54, 0x7C, 0x00, 0x00 };   // walkie-talkie
+const uint8_t BITMAP_ModeMarine[7] = { 0x10, 0x30, 0x70, 0x7F, 0x76, 0x34, 0x10 };   // boat
+const uint8_t * const BITMAP_ModeIcons[5] = { BITMAP_ModeHam, BITMAP_ModeGmrs, BITMAP_ModeMarine, BITMAP_ModeAir, BITMAP_ModeFm };
+
+// "TX" in a box, struck through: this channel cannot transmit (13 x 7).
+const uint8_t BITMAP_NoTx[13]      = { 0x7F, 0x41, 0x61, 0x53, 0x7F, 0x53, 0x49, 0x77, 0x4D, 0x77, 0x43, 0x41, 0x7F };
+const uint8_t BITMAP_ModeAir[7]    = { 0x1C, 0x08, 0x08, 0x7F, 0x3E, 0x1C, 0x08 };   // airplane, nose right
+const uint8_t BITMAP_ModeFm[7]     = { 0x7C, 0x6E, 0x55, 0x6D, 0x55, 0x6E, 0x7C };   // boombox: handle, two speakers
+#endif
+
 const uint8_t gFontPowerSave[2][6] =
 {
     {0x00, 0x7f, 0x9, 0x9, 0x9, 0x6},

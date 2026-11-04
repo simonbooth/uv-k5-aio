@@ -39,6 +39,9 @@
 #include "ui/scanner.h"
 #include "ui/ui.h"
 #include "../misc.h"
+#ifdef ENABLE_FEAT_SERVICE_MODES
+    #include "app/sysinfo.h"
+#endif
 
 GUI_DisplayType_t gScreenToDisplay;
 GUI_DisplayType_t gRequestDisplayScreen = DISPLAY_INVALID;
@@ -51,9 +54,13 @@ bool              gAskToDelete;
 void (*UI_DisplayFunctions[])(void) = {
     [DISPLAY_MAIN] = &UI_DisplayMain,
     [DISPLAY_MENU] = &UI_DisplayMenu,
+#ifdef ENABLE_FEAT_FINDER
     [DISPLAY_SCANNER] = &UI_DisplayScanner,
+#else
+    [DISPLAY_SCANNER] = &UI_DisplayMain,     // never shown; keeps the table whole
+#endif
 
-#ifdef ENABLE_FMRADIO
+#ifdef ENABLE_FMRADIO_SCREEN
     [DISPLAY_FM] = &UI_DisplayFM,
 #endif
 
@@ -63,6 +70,12 @@ void (*UI_DisplayFunctions[])(void) = {
 
 #ifdef ENABLE_REGA
     [DISPLAY_REGA] = &UI_DisplayREGA,
+#endif
+
+#ifdef ENABLE_FEAT_SERVICE_MODES
+    [DISPLAY_SYSINFO] = &SYSINFO_Display,
+    [DISPLAY_RESET]   = &RESET_Display,
+    [DISPLAY_CONFIRM] = &CONFIRM_Display,
 #endif
 };
 
@@ -88,7 +101,7 @@ void GUI_SelectNextDisplay(GUI_DisplayType_t Display)
         gIsInSubMenu         = false;
         gCssBackgroundScan   = false;
         gScanStateDir        = SCAN_OFF;
-        #ifdef ENABLE_FMRADIO
+        #ifdef ENABLE_FMRADIO_SCREEN
             gFM_ScanState    = FM_SCAN_OFF;
         #endif
         gAskForConfirmation  = 0;

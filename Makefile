@@ -10,6 +10,8 @@ ENABLE_AIRCOPY                  ?= 0
 ENABLE_NOAA                     ?= 0
 ENABLE_VOICE                    ?= 0
 ENABLE_VOX                      ?= 1
+# services: the legacy menu (only the DTMF items left in it) - else SysInf + CHIRP
+ENABLE_DTMF_UI                  ?= 0
 ENABLE_ALARM                    ?= 0
 ENABLE_TX1750                   ?= 1
 ENABLE_PWRON_PASSWORD           ?= 0
@@ -68,6 +70,10 @@ ENABLE_FEAT_F4HWN_PMR           ?= 0
 ENABLE_FEAT_F4HWN_GMRS_FRS_MURS	?= 0
 ENABLE_FEAT_F4HWN_CA            ?= 1
 ENABLE_FEAT_F4HWN_DEBUG         ?= 0
+# HAM / GMRS-FRS / MARINE service modes and the expanded VFO detail view
+ENABLE_FEAT_SERVICE_MODES       ?= 0
+# frequency / CTCSS-DCS finder (F+4, F+*, menu tone search)
+ENABLE_FEAT_FINDER              ?= 1
 
 # ---- DEBUGGING ----
 ENABLE_AM_FIX_SHOW_DATA         ?= 0
@@ -110,7 +116,11 @@ OBJS += init.o
 ifeq ($(ENABLE_OVERLAY),1)
 	OBJS += sram-overlay.o
 endif
-OBJS += external/printf/printf.o
+ifeq ($(ENABLE_FEAT_SERVICE_MODES),1)
+	OBJS += helper/fmt.o   # sprintf_ for the formats used (in place of external/printf)
+else
+	OBJS += external/printf/printf.o
+endif
 
 # Drivers
 OBJS += driver/adc.o
@@ -160,7 +170,11 @@ ifeq ($(ENABLE_FMRADIO),1)
 endif
 OBJS += app/generic.o
 OBJS += app/main.o
-OBJS += app/menu.o
+ifeq ($(ENABLE_FEAT_SERVICE_MODES)$(ENABLE_DTMF_UI),10)
+	OBJS += app/nomenu.o   # (no legacy menu: app/menu.c, ui/menu.c not built)
+else
+	OBJS += app/menu.o
+endif
 ifeq ($(ENABLE_SPECTRUM), 1)
 OBJS += app/spectrum.o
 endif
@@ -170,7 +184,9 @@ endif
 ifeq ($(ENABLE_FEAT_F4HWN_GAME), 1)
 OBJS += app/breakout.o
 endif
-OBJS += app/scanner.o
+ifeq ($(ENABLE_FEAT_FINDER),1)
+	OBJS += app/scanner.o
+endif
 ifeq ($(ENABLE_UART),1)
 	OBJS += app/uart.o
 endif
@@ -190,12 +206,21 @@ OBJS += misc.o
 OBJS += radio.o
 OBJS += scheduler.o
 OBJS += settings.o
+ifeq ($(ENABLE_FEAT_SERVICE_MODES),1)
+	OBJS += service.o
+	OBJS += subcode.o
+	OBJS += svc_plans.o
+	OBJS += app/param_edit.o
+	OBJS += app/sysinfo.o
+endif
 ifeq ($(ENABLE_AIRCOPY),1)
 	OBJS += ui/aircopy.o
 endif
 OBJS += ui/battery.o
 ifeq ($(ENABLE_FMRADIO),1)
+ifneq ($(ENABLE_FEAT_SERVICE_MODES),1)
 	OBJS += ui/fmradio.o
+endif
 endif
 OBJS += ui/helper.o
 OBJS += ui/inputbox.o
@@ -203,8 +228,12 @@ ifeq ($(ENABLE_PWRON_PASSWORD),1)
 	OBJS += ui/lock.o
 endif
 OBJS += ui/main.o
-OBJS += ui/menu.o
-OBJS += ui/scanner.o
+ifneq ($(ENABLE_FEAT_SERVICE_MODES)$(ENABLE_DTMF_UI),10)
+	OBJS += ui/menu.o
+endif
+ifeq ($(ENABLE_FEAT_FINDER),1)
+	OBJS += ui/scanner.o
+endif
 OBJS += ui/status.o
 OBJS += ui/ui.o
 OBJS += ui/welcome.o
@@ -326,6 +355,9 @@ ifeq ($(ENABLE_AIRCOPY),1)
 endif
 ifeq ($(ENABLE_FMRADIO),1)
 	CFLAGS += -DENABLE_FMRADIO
+ifneq ($(ENABLE_FEAT_SERVICE_MODES),1)
+	CFLAGS += -DENABLE_FMRADIO_SCREEN   # service modes: broadcast FM is a VFO modulation instead
+endif
 endif
 ifeq ($(ENABLE_UART),1)
 	CFLAGS += -DENABLE_UART
@@ -341,6 +373,9 @@ ifeq ($(ENABLE_NOAA),1)
 endif
 ifeq ($(ENABLE_VOICE),1)
 	CFLAGS  += -DENABLE_VOICE
+endif
+ifeq ($(ENABLE_DTMF_UI),1)
+	CFLAGS  += -DENABLE_DTMF_UI
 endif
 ifeq ($(ENABLE_VOX),1)
 	CFLAGS  += -DENABLE_VOX
@@ -495,6 +530,12 @@ ifeq ($(ENABLE_FEAT_F4HWN_PMR),1)
 endif
 ifeq ($(ENABLE_FEAT_F4HWN_GMRS_FRS_MURS),1)
 	CFLAGS  += -DENABLE_FEAT_F4HWN_GMRS_FRS_MURS
+endif
+ifeq ($(ENABLE_FEAT_SERVICE_MODES),1)
+	CFLAGS  += -DENABLE_FEAT_SERVICE_MODES
+endif
+ifeq ($(ENABLE_FEAT_FINDER),1)
+	CFLAGS  += -DENABLE_FEAT_FINDER
 endif
 ifeq ($(ENABLE_FEAT_F4HWN_CA),1)
 	CFLAGS  += -DENABLE_FEAT_F4HWN_CA

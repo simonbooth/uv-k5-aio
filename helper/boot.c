@@ -25,6 +25,10 @@
 #include "driver/gpio.h"
 #include "driver/system.h"
 #include "helper/boot.h"
+#ifdef ENABLE_FEAT_SERVICE_MODES
+    #include "app/sysinfo.h"
+    #include "service.h"
+#endif
 #include "misc.h"
 #include "radio.h"
 #include "settings.h"
@@ -35,6 +39,14 @@ BOOT_Mode_t BOOT_GetMode(void)
 {
     unsigned int i;
     KEY_Code_t   Keys[2];
+
+#ifdef ENABLE_FEAT_SERVICE_MODES
+    if (KEYBOARD_Poll() == KEY_EXIT) {   // (no PTT): the reset screen
+        SYSTEM_DelayMs(20);
+        if (KEYBOARD_Poll() == KEY_EXIT)
+            return BOOT_MODE_RESET;
+    }
+#endif
 
     for (i = 0; i < 2; i++)
     {
@@ -72,6 +84,12 @@ BOOT_Mode_t BOOT_GetMode(void)
 
 void BOOT_ProcessMode(BOOT_Mode_t Mode)
 {
+#ifdef ENABLE_FEAT_SERVICE_MODES
+    if (Mode == BOOT_MODE_RESET || SERVICE_IsFirstRun()) {
+        RESET_Open(SERVICE_IsFirstRun());
+        return;
+    }
+#endif
     if (Mode == BOOT_MODE_F_LOCK)
     {
         #ifdef ENABLE_FEAT_F4HWN_RESUME_STATE

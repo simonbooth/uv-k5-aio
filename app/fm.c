@@ -31,12 +31,22 @@
 #include "settings.h"
 #include "ui/inputbox.h"
 #include "ui/ui.h"
+#include "radio.h"
+#include "service.h"
+#include "driver/bk4819.h"
+#include "driver/system.h"
+#include "driver/keyboard.h"
+#include "ui/main.h"
+#include "ui/status.h"
+#include "app/chFrScanner.h"
 
 #ifndef ARRAY_SIZE
     #define ARRAY_SIZE(x) (sizeof(x) / sizeof(x[0]))
 #endif
 
+#ifdef ENABLE_FMRADIO_SCREEN   // (service modes: FM memories are WFM memories)
 uint16_t          gFM_Channels[20];
+#endif
 bool              gFmRadioMode;
 uint8_t           gFmRadioCountdown_500ms;
 volatile uint16_t gFmPlayCountdown_10ms;
@@ -49,6 +59,7 @@ uint16_t          gFM_RestoreCountdown_10ms;
 
 
 
+#ifdef ENABLE_FMRADIO_SCREEN   // the stock FM radio screen: its keys, channels and scan
 const uint8_t BUTTON_STATE_PRESSED = 1 << 0;
 const uint8_t BUTTON_STATE_HELD = 1 << 1;
 
@@ -99,6 +110,8 @@ int FM_ConfigureChannelState(void)
     return 0;
 }
 
+#endif
+
 void FM_TurnOff(void)
 {
     gFmRadioMode              = false;
@@ -118,6 +131,7 @@ void FM_TurnOff(void)
     #endif
 }
 
+#ifdef ENABLE_FMRADIO_SCREEN
 void FM_EraseChannels(void)
 {
     uint8_t      Template[8];
@@ -609,6 +623,8 @@ void FM_Play(void)
     GUI_SelectNextDisplay(DISPLAY_FM);
 }
 
+#endif
+
 void FM_Start(void)
 {
     gDualWatchActive          = false;
@@ -628,5 +644,107 @@ void FM_Start(void)
         SETTINGS_WriteCurrentState();
     #endif
 }
+
+#ifndef ENABLE_FMRADIO_SCREEN
+// Scan on broadcast FM: seek the next station up (the FM chip muted, 100 kHz steps,
+// wrapping in the band): enough SNR and signal, the AFC near the centre.
+void FM_ApplyAudio(void)
+{
+    gBK1080Volume = SERVICE_FmVolume();
+    gBK1080Mono   = !SERVICE_FmStereo();
+    if (!gFmRadioMode || gFM_RestoreCountdown_10ms)
+        return;   // (BK1080_Init applies them when it plays)
+    BK1080_WriteRegister(BK1080_REG_05_SYSTEM_CONFIGURATION2,
+                         (uint16_t)((BK1080_ReadRegister(BK1080_REG_05_SYSTEM_CONFIGURATION2) & ~0x0Fu) |
+                                    (gMute ? 0u : gBK1080Volume)));
+    BK1080_Mute(false);
+}
+
+bool FM_Signal(uint8_t *rssi, uint8_t *snr, bool *stereo)
+{
+    if (!gFmRadioMode || gFM_RestoreCountdown_10ms)
+        return false;
+    const uint16_t r10 = BK1080_ReadRegister(BK1080_REG_10);   // (status: ST bit 8, RSSI bits 0-7)
+    *rssi   = (uint8_t)BK1080_REG_10_GET_RSSI(r10);
+    *stereo = r10 & 0x0100u;
+    *snr    = (uint8_t)BK1080_REG_07_GET_SNR(BK1080_ReadRegister(BK1080_REG_07));
+    return true;
+}
+
+void FM_Seek(void)
+{
+    VFO_Info_t *v = gTxVfo;
+    uint16_t    f = (uint16_t)(v->freq_config_RX.Frequency / 10000u);
+    if (!gFmRadioMode || gFM_RestoreCountdown_10ms)
+        return;   // not playing (interrupted by the other VFO)
+    BK1080_Mute(true);
+    // Shown as it goes: a frequency scan's S (this loop is all that runs meanwhile, so
+    // the scan state is only seen by the screens drawn here), and any key stops it.
+    gScanStateDir  = SCAN_FWD;
+    gNextMrChannel = FREQ_CHANNEL_FIRST + SLOT_FM;
+    UI_DisplayStatus();
+    KEY_Code_t held = KEYBOARD_Poll();   // the key that started it, until released
+    for (uint8_t i = 0; i < 205u; i++) {
+        if (++f >= 1080u)
+            f = 875u;
+        BK1080_SetFrequency(f, gEeprom.FM_Band);
+        v->freq_config_RX.Frequency = f * 10000u;
+        UI_DisplayMain();
+        SYSTEM_DelayMs(40);
+        const KEY_Code_t k = KEYBOARD_Poll();
+        if (k != held) {
+            if (k != KEY_INVALID)
+                break;
+            held = KEY_INVALID;
+        }
+        const uint16_t r7  = BK1080_ReadRegister(BK1080_REG_07);
+        const uint16_t r10 = BK1080_ReadRegister(BK1080_REG_10);
+        const uint16_t dev = BK1080_REG_07_GET_FREQD(r7);
+        if (BK1080_REG_07_GET_SNR(r7) > 2 && !(r10 & BK1080_REG_10_MASK_AFCRL) &&
+            BK1080_REG_10_GET_RSSI(r10) >= 10 && (dev < 280u || dev > 3815u))
+            break;
+    }
+    while (KEYBOARD_Poll() != KEY_INVALID)
+        ;   // the key that stopped it: used up
+    gScanStateDir = SCAN_OFF;
+    gUpdateStatus = true;
+    BK1080_Mute(false);
+    gEeprom.FM_FrequencyPlaying = f;
+    SETTINGS_SaveChannel(v->CHANNEL_SAVE, gEeprom.TX_VFO, v, 1);   // the station / the VFO's slot
+    gUpdateDisplay = true;
+}
+
+// Broadcast FM is a VFO modulation (MODULATION_BFM, FM within 87.5-108 MHz): while
+// the selected VFO is on it the FM chip plays that VFO's frequency (muted when the
+// other VFO is selected) and the BK4819 listens on the other VFO. Reception or TX there interrupts the
+// broadcast, which comes back after the restore countdown, as with the stock FM radio.
+// Called after every RADIO_SetupRegisters(), which turns the speaker off.
+void FM_Sync(void)
+{
+    const VFO_Info_t *p = &gEeprom.VfoInfo[gEeprom.TX_VFO];
+    if (p->Modulation != MODULATION_BFM) {
+        if (gFmRadioMode)
+            FM_TurnOff();
+        return;
+    }
+
+    const uint16_t f      = (uint16_t)(p->freq_config_RX.Frequency / 10000u);   // 100 kHz
+    const bool     retune = !gFmRadioMode || f != gEeprom.FM_FrequencyPlaying;
+    gEeprom.FM_SelectedFrequency = gEeprom.FM_FrequencyPlaying = f;   // the last station, for F+0 / F+1
+    gEeprom.FM_Band              = 0;                                  // 87.5-108 MHz
+
+    if (gCurrentFunction == FUNCTION_TRANSMIT || FUNCTION_IsRx() || gFM_RestoreCountdown_10ms) {
+        gFmRadioMode = true;   // interrupted: the restore countdown starts it
+        return;
+    }
+    if (retune) {
+        FM_Start();
+        return;
+    }
+    AUDIO_AudioPathOn();
+    gEnableSpeaker = true;
+}
+#endif
+
 
 #endif

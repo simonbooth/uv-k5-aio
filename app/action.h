@@ -36,6 +36,7 @@ void ACTION_SwitchDemodul(void);
 #endif
 
 #ifdef ENABLE_FEAT_F4HWN
+    void ACTION_Update(void);
     void ACTION_RxMode(void);
     void ACTION_MainOnly(void);
     void ACTION_Ptt(void);

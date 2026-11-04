@@ -28,7 +28,9 @@ enum {
     FM_SCAN_OFF = 0U,
 };
 
+#ifdef ENABLE_FMRADIO_SCREEN
 extern uint16_t          gFM_Channels[20];
+#endif
 extern bool              gFmRadioMode;
 extern uint8_t           gFmRadioCountdown_500ms;
 extern volatile uint16_t gFmPlayCountdown_10ms;
@@ -55,6 +57,14 @@ void    FM_ProcessKeys(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld);
 
 void    FM_Play(void);
 void    FM_Start(void);
+void    FM_Sync(void);   // broadcast FM as a VFO modulation (no FM screen)
+
+void    FM_Seek(void);   // scan on broadcast FM: the next station up
+void    FM_ApplyAudio(void);   // the saved volume / mono to the FM chip (now, if it plays)
+// While a station plays: its signal (dBuV), SNR, and whether it is received in stereo.
+bool    FM_Signal(uint8_t *rssi, uint8_t *snr, bool *stereo);
+
+#define FM_IS_BROADCAST(f) ((f) >= 8750000u && (f) < 10800000u)   // 10 Hz units
 
 #endif
 

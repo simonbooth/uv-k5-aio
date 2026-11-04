@@ -12,3 +12,8 @@ k5_eeprom.raw
 f4hwn
 f4hwn.*
 !archive/f4hwn*
+# local: a radio EEPROM backup (its calibration, memories), reference docs, Python caches
+*.img
+*.pdf
+__pycache__/
+_pp/

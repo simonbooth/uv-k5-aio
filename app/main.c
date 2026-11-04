@@ -42,11 +42,14 @@
 #include "frequencies.h"
 #include "misc.h"
 #include "radio.h"
+#include "service.h"
+#include "app/param_edit.h"
 #include "settings.h"
 #include "ui/inputbox.h"
 #include "ui/ui.h"
 #include <stdlib.h>
 
+#ifndef ENABLE_FEAT_SERVICE_MODES   // (services: groups are set in CHIRP)
 static void toggle_chan_scanlist(void)
 {   // toggle the selected channels scanlist setting
 
@@ -83,10 +86,15 @@ static void toggle_chan_scanlist(void)
     gVfoConfigureMode = VFO_CONFIGURE;
     gFlagResetVfos    = true;
 }
+#endif
 
 static void processFKeyFunction(const KEY_Code_t Key, const bool beep)
 {
     uint8_t Vfo = gEeprom.TX_VFO;
+
+#ifdef ENABLE_FEAT_SERVICE_MODES
+    PARAM_Cancel();   // F + digit: that function instead of parameter selection
+#endif
 
 #ifdef ENABLE_FEAT_F4HWN_RESCUE_OPS
     if(gEeprom.MENU_LOCK == true) {
@@ -116,12 +124,24 @@ static void processFKeyFunction(const KEY_Code_t Key, const bool beep)
             break;
 
         case KEY_1:
-            if (!IS_FREQ_CHANNEL(gTxVfo->CHANNEL_SAVE)) {
+            if (!IS_FREQ_CHANNEL(gTxVfo->CHANNEL_SAVE)
+#ifdef ENABLE_FEAT_SERVICE_MODES
+                || true   // the mode rotation from VFOs too (the ham band is an F-editor item)
+#endif
+            ) {
                 gWasFKeyPressed = false;
                 gUpdateStatus   = true;
                 gBeepToPlay     = BEEP_1KHZ_60MS_OPTIONAL;
 
-#ifdef ENABLE_COPY_CHAN_TO_VFO
+#ifdef ENABLE_FEAT_SERVICE_MODES
+                // Channel modes: F+1 moves the selected VFO to its next mode.
+                // (Copy-to-VFO is now automatic on every MR->VFO switch.)
+                if (gScanStateDir != SCAN_OFF)
+                    return;
+
+                COMMON_CycleService();
+                gRequestDisplayScreen = DISPLAY_MAIN;
+#elif defined(ENABLE_COPY_CHAN_TO_VFO)
                 if (!gEeprom.VFO_OPEN || gCssBackgroundScan) {
                     gBeepToPlay = BEEP_500HZ_60MS_DOUBLE_BEEP_OPTIONAL;
                     return;
@@ -192,6 +212,15 @@ static void processFKeyFunction(const KEY_Code_t Key, const bool beep)
             #ifdef ENABLE_FEAT_F4HWN
                 gVfoConfigureMode     = VFO_CONFIGURE;
             #endif
+#ifdef ENABLE_FEAT_SERVICE_MODES
+            if (beep) {                    // F+2: single <-> A / B view (that starts the watch)
+                SERVICE_SetAbView(!SERVICE_GetAbView(), false);
+                gRequestDisplayScreen = DISPLAY_MAIN;
+                gBeepToPlay           = BEEP_1KHZ_60MS_OPTIONAL;
+                break;
+            }
+            SERVICE_WatchStop();      // long press 2: pick A / B, which ends the watch
+#endif
             COMMON_SwitchVFOs();
             if (beep)
                 gBeepToPlay = BEEP_1KHZ_60MS_OPTIONAL;
@@ -209,6 +238,16 @@ static void processFKeyFunction(const KEY_Code_t Key, const bool beep)
 
         case KEY_4:
             gWasFKeyPressed          = false;
+#ifdef ENABLE_FEAT_SERVICE_MODES
+            if (IS_SVC_CHANNEL(gTxVfo->CHANNEL_SAVE)) {   // the finder is a VFO tool: scan the plan
+                ACTION_Scan(false);
+                break;
+            }
+#endif
+#ifndef ENABLE_FEAT_FINDER
+            gBeepToPlay = BEEP_500HZ_60MS_DOUBLE_BEEP_OPTIONAL;
+            break;
+#else
 
             gBackup_CROSS_BAND_RX_TX  = gEeprom.CROSS_BAND_RX_TX;
             gEeprom.CROSS_BAND_RX_TX = CROSS_BAND_OFF;
@@ -219,6 +258,7 @@ static void processFKeyFunction(const KEY_Code_t Key, const bool beep)
             SCANNER_Start(false);
             gRequestDisplayScreen = DISPLAY_SCANNER;
             break;
+#endif
 
         case KEY_5:
             if(beep) {
@@ -234,14 +274,27 @@ static void processFKeyFunction(const KEY_Code_t Key, const bool beep)
                 }
                 gRequestSaveVFO   = true;
                 gVfoConfigureMode = VFO_CONFIGURE_RELOAD;
+#elif defined(ENABLE_FEAT_SERVICE_MODES)
+                // F+5: marine watch. A = channel 16 (distress / calling, and the VFO
+                // you transmit on), B = WX1 (13 where the plan has no WX channels).
+                if (gScanStateDir != SCAN_OFF || !SERVICE_Enabled(SERVICE_MARINE))
+                    return;   // (no marine licence: nothing)
+                if (gEeprom.TX_VFO != 0)
+                    COMMON_SwitchVFOs();
+                COMMON_SetService(SERVICE_MARINE);   // (the reload it asks for runs after this)
+                gEeprom.ScreenChannel[0] = SERVICE_MarineCallingChannel();
+                gEeprom.ScreenChannel[1] = SERVICE_MarineWatchChannel();
+                SERVICE_SetAbView(true, true);       // watch WX1 (alert-gated), transmit on 16
 #elif defined(ENABLE_SPECTRUM)
                 APP_RunSpectrum();
                 gRequestDisplayScreen = DISPLAY_MAIN;
 #endif
             }
+#ifndef ENABLE_FEAT_SERVICE_MODES   // (F+5 held: scan-list membership; services: CHIRP's groups)
             else {
                 toggle_chan_scanlist();
             }
+#endif
 
             break;
 
@@ -266,6 +319,9 @@ static void processFKeyFunction(const KEY_Code_t Key, const bool beep)
             if (RADIO_CheckValidChannel(gEeprom.CHAN_1_CALL, false, 0)) {
                 gEeprom.MrChannel[Vfo]     = gEeprom.CHAN_1_CALL;
                 gEeprom.ScreenChannel[Vfo] = gEeprom.CHAN_1_CALL;
+#ifdef ENABLE_FEAT_SERVICE_MODES
+                SERVICE_SetGroup(Vfo, 0);   // (as picked by number)
+#endif
 #ifdef ENABLE_VOICE
                 AUDIO_SetVoiceID(0, VOICE_ID_CHANNEL_MODE);
                 AUDIO_SetDigitVoice(1, gEeprom.CHAN_1_CALL + 1);
@@ -280,16 +336,19 @@ static void processFKeyFunction(const KEY_Code_t Key, const bool beep)
                 gBeepToPlay = BEEP_500HZ_60MS_DOUBLE_BEEP_OPTIONAL;
             break;
 
-#ifdef ENABLE_FEAT_F4HWN // Set Squelch F + UP or Down and Step F + SIDE1 or F + SIDE2
+#if defined(ENABLE_FEAT_F4HWN) && !defined(ENABLE_FEAT_SERVICE_MODES) // Set Squelch F + UP or Down and Step F + SIDE1 or F + SIDE2
         case KEY_UP:
-            gEeprom.SQUELCH_LEVEL = (gEeprom.SQUELCH_LEVEL < 9) ? gEeprom.SQUELCH_LEVEL + 1: 9;
-            gVfoConfigureMode     = VFO_CONFIGURE;
-            gWasFKeyPressed = false;
-            break;
         case KEY_DOWN:
-            gEeprom.SQUELCH_LEVEL = (gEeprom.SQUELCH_LEVEL > 0) ? gEeprom.SQUELCH_LEVEL - 1: 0;
-            gVfoConfigureMode     = VFO_CONFIGURE;
             gWasFKeyPressed = false;
+#ifdef ENABLE_FEAT_SERVICE_MODES
+            SERVICE_StepSquelch(gEeprom.TX_VFO, Key == KEY_UP ? 1 : -1);
+#else
+            if (Key == KEY_UP)
+                gEeprom.SQUELCH_LEVEL = (gEeprom.SQUELCH_LEVEL < 9) ? gEeprom.SQUELCH_LEVEL + 1: 9;
+            else
+                gEeprom.SQUELCH_LEVEL = (gEeprom.SQUELCH_LEVEL > 0) ? gEeprom.SQUELCH_LEVEL - 1: 0;
+            gVfoConfigureMode     = VFO_CONFIGURE;
+#endif
             break;
 
         case KEY_SIDE1:
@@ -350,6 +409,9 @@ void channelMove(uint16_t Channel)
 
     gEeprom.MrChannel[Vfo]     = (uint8_t)Channel;
     gEeprom.ScreenChannel[Vfo] = (uint8_t)Channel;
+#ifdef ENABLE_FEAT_SERVICE_MODES
+    SERVICE_SetGroup(Vfo, 0);   // picked by number: all memories (not a group it is also in)
+#endif
     //gRequestSaveVFO            = true;
     gVfoConfigureMode          = VFO_CONFIGURE_RELOAD;
 
@@ -406,6 +468,17 @@ void channelMoveSwitch(void) {
 
 static void MAIN_Key_DIGITS(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
 {
+#ifdef ENABLE_FEAT_SERVICE_MODES
+    if ((PARAM_Current() == PE_OFFSET || PARAM_Current() == PE_NAME) && !gWasFKeyPressed) {   // typing the offset (kHz) / name
+        if (!bKeyPressed && !bKeyHeld) {
+            PARAM_Digit(Key - KEY_0);
+            gBeepToPlay = BEEP_1KHZ_60MS_OPTIONAL;
+        }
+        return;
+    }
+    if (bKeyPressed && !gWasFKeyPressed)
+        PARAM_Cancel();   // entering a frequency / channel
+#endif
     if (bKeyHeld) { // key held down
         if (bKeyPressed) {
             if (gScreenToDisplay == DISPLAY_MAIN) {
@@ -432,6 +505,7 @@ static void MAIN_Key_DIGITS(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
     if (!gWasFKeyPressed) { // F-key wasn't pressed
 
         if (gScanStateDir != SCAN_OFF){
+#ifndef ENABLE_FEAT_SERVICE_MODES   // (the scan covers the VFO's group)
             switch(Key) {
                 case KEY_0...KEY_5:
                     gEeprom.SCAN_LIST_DEFAULT = Key;
@@ -442,10 +516,17 @@ static void MAIN_Key_DIGITS(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
                 default:
                     break;
             }
+#endif
             return;
         }
 
         const uint8_t Vfo = gEeprom.TX_VFO;
+
+        if (IS_SVC_CHANNEL(gTxVfo->CHANNEL_SAVE)) {   // no direct entry on built-in plans (yet)
+            gBeepToPlay = BEEP_500HZ_60MS_DOUBLE_BEEP_OPTIONAL;
+            return;
+        }
+
         INPUTBOX_Append(Key);
         gKeyInputCountdown = key_input_timeout_500ms;
 
@@ -513,6 +594,12 @@ static void MAIN_Key_DIGITS(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
                 Frequency = frequencyBandTable[BAND_N_ELEM - 1].upper;
             }
 
+#ifdef ENABLE_FEAT_SERVICE_MODES
+            if (!SERVICE_TuneVfo(Vfo, Frequency)) {   // its band's VFO slot; switched off: refused
+                gBeepToPlay = BEEP_500HZ_60MS_DOUBLE_BEEP_OPTIONAL;
+                return;
+            }
+#else
             const FREQUENCY_Band_t band = FREQUENCY_GetBand(Frequency);
 
             if (gTxVfo->Band != band) {
@@ -524,6 +611,7 @@ static void MAIN_Key_DIGITS(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
 
                 RADIO_ConfigureChannel(Vfo, VFO_CONFIGURE_RELOAD);
             }
+#endif
 
             Frequency = FREQUENCY_RoundToStep(Frequency, gTxVfo->StepFrequency);
 
@@ -602,6 +690,23 @@ static void MAIN_Key_EXIT(bool bKeyPressed, bool bKeyHeld)
     if (!bKeyHeld && bKeyPressed) { // exit key pressed
         gBeepToPlay = BEEP_1KHZ_60MS_OPTIONAL;
 
+#ifdef ENABLE_FEAT_SERVICE_MODES
+        if (gEditItem != PE_NONE) {     // leave parameter selection
+            PARAM_Cancel();
+            gWasFKeyPressed = false;
+            gUpdateStatus   = true;
+            gUpdateDisplay  = true;
+            return;
+        }
+        if (gInputBoxIndex == 0 && SERVICE_WatchExit())   // A / B view: back to the watch
+            return;
+        if (SERVICE_WxAlertReset()) {   // after a weather alert: re-arm the watch
+            gFlagReconfigureVfos = true;
+            return;
+        }
+#endif
+
+
 #ifdef ENABLE_DTMF_CALLING
         if (gDTMF_CallState != DTMF_CALL_STATE_NONE && gCurrentFunction != FUNCTION_TRANSMIT)
         {   // clear CALL mode being displayed
@@ -611,7 +716,7 @@ static void MAIN_Key_EXIT(bool bKeyPressed, bool bKeyHeld)
         }
 #endif
 
-#ifdef ENABLE_FMRADIO
+#ifdef ENABLE_FMRADIO_SCREEN
         if (!gFmRadioMode)
 #endif
         {
@@ -640,7 +745,7 @@ static void MAIN_Key_EXIT(bool bKeyPressed, bool bKeyHeld)
             return;
         }
 
-#ifdef ENABLE_FMRADIO
+#ifdef ENABLE_FMRADIO_SCREEN
         ACTION_FM();
 #endif
         return;
@@ -671,7 +776,7 @@ static void MAIN_Key_MENU(bool bKeyPressed, bool bKeyHeld)
             // Exclude work with list 1, 2, 3 or all list
             if(gScanStateDir != SCAN_OFF)
             {
-                if(FUNCTION_IsRx() || gScanPauseDelayIn_10ms > 9)
+                if(IS_MR_CHANNEL(gTxVfo->CHANNEL_SAVE) && (FUNCTION_IsRx() || gScanPauseDelayIn_10ms > 9))
                 {
                     gMR_ChannelExclude[gTxVfo->CHANNEL_SAVE] = true;
 
@@ -719,8 +824,12 @@ static void MAIN_Key_MENU(bool bKeyPressed, bool bKeyHeld)
             if(gEeprom.MENU_LOCK == false) {
             #endif
 
+#if defined(ENABLE_FEAT_SERVICE_MODES) && !defined(ENABLE_DTMF_UI)
+            gRequestDisplayScreen = DISPLAY_SYSINFO;   // (no legacy menu: the settings screen)
+#else
             gFlagRefreshSetting = true;
             gRequestDisplayScreen = DISPLAY_MENU;
+#endif
             #ifdef ENABLE_VOICE
                 gAnotherVoiceID   = VOICE_ID_MENU;
             #endif
@@ -815,12 +924,22 @@ static void MAIN_Key_STAR(bool bKeyPressed, bool bKeyHeld)
             return;
         }               
 #endif
+#ifdef ENABLE_FEAT_SERVICE_MODES
+        if (IS_SVC_CHANNEL(gTxVfo->CHANNEL_SAVE)) {   // the tone finder is a VFO tool: scan the plan
+            ACTION_Scan(false);
+            return;
+        }
+#endif
+#ifdef ENABLE_FEAT_FINDER
         // scan the CTCSS/DCS code
         gBackup_CROSS_BAND_RX_TX  = gEeprom.CROSS_BAND_RX_TX;
         gEeprom.CROSS_BAND_RX_TX = CROSS_BAND_OFF;
 
         SCANNER_Start(true);
         gRequestDisplayScreen = DISPLAY_SCANNER;
+#else
+        gBeepToPlay = BEEP_500HZ_60MS_DOUBLE_BEEP_OPTIONAL;
+#endif
     }
     
     //gPttWasReleased = true; Fixed issue #138
@@ -829,8 +948,19 @@ static void MAIN_Key_STAR(bool bKeyPressed, bool bKeyHeld)
 
 static void MAIN_Key_UP_DOWN(bool bKeyPressed, bool bKeyHeld, int8_t Direction)
 {
+#ifdef ENABLE_FEAT_SERVICE_MODES
+    const uint8_t item = PARAM_Current();
+    if (item != PE_NONE && (item != PE_TUNE || gEditVfo != gEeprom.TX_VFO)) {   // the selected parameter (the other VFO's frequency too)
+        if (bKeyPressed) {              // press and held repeats
+            if (!bKeyHeld)
+                gBeepToPlay = BEEP_1KHZ_60MS_OPTIONAL;
+            PARAM_Step(Direction);
+        }
+        return;
+    }
+#endif
 
-#ifdef ENABLE_FEAT_F4HWN // Set Squelch F + UP or Down
+#if defined(ENABLE_FEAT_F4HWN) && !defined(ENABLE_FEAT_SERVICE_MODES) // Set Squelch F + UP or Down
     if(gWasFKeyPressed) {
         switch(Direction)
         {
@@ -850,7 +980,8 @@ static void MAIN_Key_UP_DOWN(bool bKeyPressed, bool bKeyHeld, int8_t Direction)
     gPowerHigh = false;
 #endif
 
-    uint8_t Channel = gEeprom.ScreenChannel[gEeprom.TX_VFO];
+
+    uint16_t Channel = gEeprom.ScreenChannel[gEeprom.TX_VFO];
 
     if (bKeyHeld || !bKeyPressed) { // key held or released
         if (gInputBoxIndex > 0)
@@ -876,11 +1007,17 @@ static void MAIN_Key_UP_DOWN(bool bKeyPressed, bool bKeyHeld, int8_t Direction)
     }
 
     if (gScanStateDir == SCAN_OFF) {
+#ifdef ENABLE_FEAT_SERVICE_MODES
+        if (!COMMON_StepChannel(gEeprom.TX_VFO, Direction))
+            gBeepToPlay = BEEP_500HZ_60MS_DOUBLE_BEEP_OPTIONAL;
+        return;
+    }
+#else
 #ifdef ENABLE_NOAA
         if (!IS_NOAA_CHANNEL(Channel))
 #endif
         {
-            uint8_t Next;
+            uint16_t Next;
             if (IS_FREQ_CHANNEL(Channel)) { // step/down in frequency
                 const uint32_t frequency = APP_SetFrequencyByStep(gTxVfo, Direction);
 
@@ -896,7 +1033,7 @@ static void MAIN_Key_UP_DOWN(bool bKeyPressed, bool bKeyHeld, int8_t Direction)
             }
 
             Next = RADIO_FindNextChannel(Channel + Direction, Direction, false, 0);
-            if (Next == 0xFF)
+            if (Next == 0xFFFF)
                 return;
             if (Channel == Next)
                 return;
@@ -922,6 +1059,7 @@ static void MAIN_Key_UP_DOWN(bool bKeyPressed, bool bKeyHeld, int8_t Direction)
         gVfoConfigureMode = VFO_CONFIGURE_RELOAD;
         return;
     }
+#endif
 
     // jump to the next channel
     CHFRSCANNER_Start(false, Direction);
@@ -933,7 +1071,7 @@ static void MAIN_Key_UP_DOWN(bool bKeyPressed, bool bKeyHeld, int8_t Direction)
 
 void MAIN_ProcessKeys(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
 {
-#ifdef ENABLE_FMRADIO
+#ifdef ENABLE_FMRADIO_SCREEN
     if (gFmRadioMode && Key != KEY_PTT && Key != KEY_EXIT) {
         if (!bKeyHeld && bKeyPressed)
             gBeepToPlay = BEEP_500HZ_60MS_DOUBLE_BEEP_OPTIONAL;
@@ -984,7 +1122,29 @@ void MAIN_ProcessKeys(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
             MAIN_Key_STAR(bKeyPressed, bKeyHeld);
             break;
         case KEY_F:
+#ifdef ENABLE_FEAT_SERVICE_MODES
+            if (PARAM_Current() != PE_NONE) {   // F again (on release): the next parameter,
+                if (!bKeyPressed && !bKeyHeld) {   // after the last one selection ends
+                    PARAM_Next();
+                    if (gEditItem == PE_NONE) {
+                        gWasFKeyPressed = false;
+                        gUpdateStatus   = true;
+                    }
+                } else if (!bKeyHeld) {
+                    gBeepToPlay = BEEP_1KHZ_60MS_OPTIONAL;
+                } else if (bKeyPressed) {   // held: back one (not editing, held F: its own, the key lock)
+                    PARAM_Prev();
+                }
+                break;
+            }
+#endif
             GENERIC_Key_F(bKeyPressed, bKeyHeld);
+#ifdef ENABLE_FEAT_SERVICE_MODES
+            // F selects the first parameter right away (the frequency / channel; in
+            // the A / B view F then walks both VFOs' parameters); F + other keys still work
+            if (!bKeyPressed && gWasFKeyPressed)
+                PARAM_Next();
+#endif
             break;
         case KEY_PTT:
             GENERIC_Key_PTT(bKeyPressed);

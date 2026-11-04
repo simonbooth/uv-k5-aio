@@ -3,6 +3,7 @@
 #include "app/chFrScanner.h"
 #include "functions.h"
 #include "misc.h"
+#include "service.h"
 #include "settings.h"
 //#include "debugging.h"
 
@@ -36,28 +37,39 @@ uint8_t             initialCROSS_BAND_RX_TX;
 
 static void NextFreqChannel(void);
 static void NextMemChannel(void);
+#ifdef ENABLE_FEAT_SERVICE_MODES
+static void NextServiceChannel(void);
+#else
+#define NextServiceChannel NextMemChannel
+#endif
 
 void CHFRSCANNER_Start(const bool storeBackupSettings, const int8_t scan_direction)
 {
     if (storeBackupSettings) {
         initialCROSS_BAND_RX_TX = gEeprom.CROSS_BAND_RX_TX;
         gEeprom.CROSS_BAND_RX_TX = CROSS_BAND_OFF;
+#ifdef ENABLE_FEAT_SERVICE_MODES
+        SERVICE_ScanStart();
+#endif
         gScanKeepResult = false;
     }
     
     RADIO_SelectVfos();
+#ifdef ENABLE_FEAT_SERVICE_MODES
+    SERVICE_ScanResume();
+#endif
 
     gNextMrChannel   = gRxVfo->CHANNEL_SAVE;
     currentScanList = SCAN_NEXT_CHAN_SCANLIST1;
     gScanStateDir    = scan_direction;
 
-    if (IS_MR_CHANNEL(gNextMrChannel))
-    {   // channel mode
+    if (IS_MR_CHANNEL(gNextMrChannel) || IS_SVC_CHANNEL(gNextMrChannel))
+    {   // channel mode: memory channels, or every channel of a GMRS / marine / air plan
         if (storeBackupSettings) {
             initialFrqOrChan = gRxVfo->CHANNEL_SAVE;
             lastFoundFrqOrChan = initialFrqOrChan;
         }
-        NextMemChannel();
+        IS_SVC_CHANNEL(gNextMrChannel) ? NextServiceChannel() : NextMemChannel();
     }
     else
     {   // frequency mode
@@ -111,7 +123,8 @@ void CHFRSCANNER_ContinueScanning(void)
     }
     else
     {
-        IS_FREQ_CHANNEL(gNextMrChannel) ? NextFreqChannel() : NextMemChannel();
+        IS_FREQ_CHANNEL(gNextMrChannel) ? NextFreqChannel()
+            : IS_SVC_CHANNEL(gNextMrChannel) ? NextServiceChannel() : NextMemChannel();
     }
 
     gScanPauseMode      = false;
@@ -174,7 +187,7 @@ void CHFRSCANNER_Found(void)
     lastFoundFrqOrChanOld = lastFoundFrqOrChan;
 #endif
 
-    if (IS_MR_CHANNEL(gRxVfo->CHANNEL_SAVE)) { //memory scan
+    if (IS_MR_CHANNEL(gRxVfo->CHANNEL_SAVE) || IS_SVC_CHANNEL(gRxVfo->CHANNEL_SAVE)) { // channel scan
         lastFoundFrqOrChan = gRxVfo->CHANNEL_SAVE;
     }
     else { // frequency scan
@@ -187,6 +200,9 @@ void CHFRSCANNER_Found(void)
 
 void CHFRSCANNER_Stop(void)
 {
+#ifdef ENABLE_FEAT_SERVICE_MODES
+    SERVICE_ScanStop();
+#endif
     if(initialCROSS_BAND_RX_TX != CROSS_BAND_OFF) {
         gEeprom.CROSS_BAND_RX_TX = initialCROSS_BAND_RX_TX;
         initialCROSS_BAND_RX_TX = CROSS_BAND_OFF;
@@ -196,7 +212,16 @@ void CHFRSCANNER_Stop(void)
 
     const uint32_t chFr = gScanKeepResult ? lastFoundFrqOrChan : initialFrqOrChan;
     const bool channelChanged = chFr != initialFrqOrChan;
-    if (IS_MR_CHANNEL(gNextMrChannel)) {
+    if (IS_SVC_CHANNEL(gNextMrChannel)) {   // service plan: stay on the found (or initial) channel
+        gEeprom.ScreenChannel[gEeprom.RX_VFO] = chFr;
+        RADIO_ConfigureChannel(gEeprom.RX_VFO, VFO_CONFIGURE_RELOAD);
+
+        if(channelChanged) {
+            SETTINGS_SaveVfoIndices();
+            gUpdateStatus = true;
+        }
+    }
+    else if (IS_MR_CHANNEL(gNextMrChannel)) {
         gEeprom.MrChannel[gEeprom.RX_VFO]     = chFr;
         gEeprom.ScreenChannel[gEeprom.RX_VFO] = chFr;
         RADIO_ConfigureChannel(gEeprom.RX_VFO, VFO_CONFIGURE_RELOAD);
@@ -232,7 +257,11 @@ static void NextFreqChannel(void)
     }
     else
 #endif
+#ifdef ENABLE_FEAT_SERVICE_MODES   // within its slot's band (general: across the others)
+        gRxVfo->freq_config_RX.Frequency = SERVICE_NextVfoFrequency(gRxVfo, gScanStateDir);
+#else
         gRxVfo->freq_config_RX.Frequency = APP_SetFrequencyByStep(gRxVfo, gScanStateDir);
+#endif
 
     RADIO_ApplyOffset(gRxVfo);
     RADIO_ConfigureSquelchAndOutputPower(gRxVfo);
@@ -247,8 +276,38 @@ static void NextFreqChannel(void)
     gUpdateDisplay     = true;
 }
 
+#ifdef ENABLE_FEAT_SERVICE_MODES
+// Built-in plans have no scan lists: every channel of the plan, in order.
+static void NextServiceChannel(void)
+{
+    for (uint8_t tries = 0; tries < 100u; tries++) {
+        gNextMrChannel = SERVICE_StepChannel(gNextMrChannel, gScanStateDir);
+        if (!SERVICE_ScanSkip(gNextMrChannel))
+            break;
+    }
+    gEeprom.ScreenChannel[gEeprom.RX_VFO] = gNextMrChannel;
+
+    RADIO_ConfigureChannel(gEeprom.RX_VFO, VFO_CONFIGURE_RELOAD);
+    RADIO_SetupRegisters(true);
+
+    gUpdateDisplay = true;
+
+#ifdef ENABLE_FASTER_CHANNEL_SCAN
+    gScanPauseDelayIn_10ms = 9;
+#else
+    gScanPauseDelayIn_10ms = scan_pause_delay_in_3_10ms;
+#endif
+}
+#endif
+
 static void NextMemChannel(void)
 {
+#ifdef ENABLE_FEAT_SERVICE_MODES   // no scan-list priority channels: the A / B watch looks elsewhere
+    const unsigned int prev_chan = gNextMrChannel;
+    // only the memories of the mode the scan started in
+    unsigned int chan = SERVICE_NextScanMemory(gNextMrChannel + gScanStateDir, gScanStateDir);
+    gNextMrChannel = (chan == 0xFFFF) ? MR_CHANNEL_FIRST : chan;
+#else
     static unsigned int prev_mr_chan = 0;
     const bool          enabled      = (gEeprom.SCAN_LIST_DEFAULT > 0 && gEeprom.SCAN_LIST_DEFAULT < 4) ? gEeprom.SCAN_LIST_ENABLED[gEeprom.SCAN_LIST_DEFAULT - 1] : true;
     const int           chan1        = (gEeprom.SCAN_LIST_DEFAULT > 0 && gEeprom.SCAN_LIST_DEFAULT < 4) ? gEeprom.SCANLIST_PRIORITY_CH1[gEeprom.SCAN_LIST_DEFAULT - 1] : -1;
@@ -335,7 +394,7 @@ static void NextMemChannel(void)
     if (!enabled || chan == 0xff)
     {       
         chan = RADIO_FindNextChannel(gNextMrChannel + gScanStateDir, gScanStateDir, true, gEeprom.SCAN_LIST_DEFAULT);
-        if (chan == 0xFF)
+        if (chan == 0xFFFF)
         {   // no valid channel found
             chan = MR_CHANNEL_FIRST;
         }
@@ -345,6 +404,7 @@ static void NextMemChannel(void)
         //sprintf(str, "----> Chan %d\n", chan + 1);
         //LogUart(str);
     }
+#endif
 
     if (gNextMrChannel != prev_chan)
     {
@@ -363,7 +423,9 @@ static void NextMemChannel(void)
     gScanPauseDelayIn_10ms = scan_pause_delay_in_3_10ms;
 #endif
 
+#ifndef ENABLE_FEAT_SERVICE_MODES
     if (enabled)
         if (++currentScanList >= SCAN_NEXT_NUM)
             currentScanList = SCAN_NEXT_CHAN_SCANLIST1;  // back round we go
+#endif
 }

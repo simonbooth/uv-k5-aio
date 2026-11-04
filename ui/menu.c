@@ -30,6 +30,7 @@
 #include "../frequencies.h"
 #include "../helper/battery.h"
 #include "../misc.h"
+#include "../service.h"
 #include "../settings.h"
 #ifdef ENABLE_FEAT_F4HWN
     #include "../version.h"
@@ -43,6 +44,7 @@
 const t_menu_item MenuList[] =
 {
 //   text,          menu ID
+#ifndef ENABLE_FEAT_SERVICE_MODES   // the F editor edits these (VFOs and memories)
     {"Step",        MENU_STEP          },
     {"Power",       MENU_TXP           }, // was "TXP"
     {"RxDCS",       MENU_R_DCS         }, // was "R_DCS"
@@ -52,58 +54,121 @@ const t_menu_item MenuList[] =
     {"TxODir",      MENU_SFT_D         }, // was "SFT_D"
     {"TxOffs",      MENU_OFFSET        }, // was "OFFSET"
     {"W/N",         MENU_W_N           },
+#endif
 #ifndef ENABLE_FEAT_F4HWN
     {"Scramb",      MENU_SCR           }, // was "SCR"
 #endif
+#ifndef ENABLE_FEAT_SERVICE_MODES   // (services: CHIRP; on by default)
     {"BusyCL",      MENU_BCL           }, // was "BCL"
+#endif
+#ifndef ENABLE_FEAT_SERVICE_MODES   // (services: SysInf / setup / the F editor / CHIRP)
     {"Compnd",      MENU_COMPAND       },
+#endif
+#ifndef ENABLE_FEAT_SERVICE_MODES   // the F editor edits these (VFOs and memories)
     {"Mode",        MENU_AM            }, // was "AM"
-#ifdef ENABLE_FEAT_F4HWN
+#endif
+#if defined(ENABLE_FEAT_F4HWN) && !defined(ENABLE_FEAT_SERVICE_MODES)   // (services: CHIRP; TX Any lifts it)
     {"TXLock",      MENU_TX_LOCK       }, 
 #endif
+#ifndef ENABLE_FEAT_SERVICE_MODES   // groups (scan lists) are set in CHIRP (Banks)
     {"ScAdd1",      MENU_S_ADD1        },
     {"ScAdd2",      MENU_S_ADD2        },
     {"ScAdd3",      MENU_S_ADD3        },
+#endif
+#ifndef ENABLE_FEAT_SERVICE_MODES   // (services: the F editor: SLOT (M+ / move / M-), NAME)
     {"ChSave",      MENU_MEM_CH        }, // was "MEM-CH"
+#endif
+#ifndef ENABLE_FEAT_SERVICE_MODES   // (services: the F editor: SLOT (M+ / move / M-), NAME)
     {"ChDele",      MENU_DEL_CH        }, // was "DEL-CH"
+#endif
+#ifndef ENABLE_FEAT_SERVICE_MODES   // (services: the F editor: SLOT (M+ / move / M-), NAME)
     {"ChName",      MENU_MEM_NAME      },
+#endif
 
+#ifndef ENABLE_FEAT_SERVICE_MODES   // a scan covers the VFO's memory group (VFO/MR)
     {"SList",       MENU_S_LIST        },
     {"SList1",      MENU_SLIST1        },
     {"SList2",      MENU_SLIST2        },
     {"SList3",      MENU_SLIST3        },
+#endif
+#ifndef ENABLE_FEAT_SERVICE_MODES   // (services: CHIRP)
     {"ScnRev",      MENU_SC_REV        },
+#endif
 #ifndef ENABLE_FEAT_F4HWN
     #ifdef ENABLE_NOAA
         {"NOAA-S",      MENU_NOAA_S    },
     #endif
 #endif
+#ifndef ENABLE_FEAT_SERVICE_MODES   // (services: CHIRP)
     {"F1Shrt",      MENU_F1SHRT        },
+#endif
+#ifndef ENABLE_FEAT_SERVICE_MODES   // (services: CHIRP)
     {"F1Long",      MENU_F1LONG        },
+#endif
+#ifndef ENABLE_FEAT_SERVICE_MODES   // (services: CHIRP)
     {"F2Shrt",      MENU_F2SHRT        },
+#endif
+#ifndef ENABLE_FEAT_SERVICE_MODES   // (services: CHIRP)
     {"F2Long",      MENU_F2LONG        },
+#endif
+#ifndef ENABLE_FEAT_SERVICE_MODES   // (services: CHIRP)
     {"M Long",      MENU_MLONG         },
+#endif
 
+#ifndef ENABLE_FEAT_SERVICE_MODES   // (services: CHIRP)
     {"KeyLck",      MENU_AUTOLK        }, // was "AUTOLk"
+#endif
+#ifndef ENABLE_FEAT_SERVICE_MODES   // (services: CHIRP)
     {"TxTOut",      MENU_TOT           }, // was "TOT"
+#endif
+#ifndef ENABLE_FEAT_SERVICE_MODES   // (services: SysInf / setup / the F editor / CHIRP)
     {"BatSav",      MENU_SAVE          }, // was "SAVE"
+#endif
+#ifndef ENABLE_FEAT_SERVICE_MODES   // (services: CHIRP)
     {"BatTxt",      MENU_BAT_TXT       },
+#endif
+#ifndef ENABLE_FEAT_SERVICE_MODES   // (services: SysInf / setup / the F editor / CHIRP)
     {"Mic",         MENU_MIC           },
+#endif
+#ifdef ENABLE_AUDIO_BAR
     {"MicBar",      MENU_MIC_BAR       },
+#endif
+#ifndef ENABLE_FEAT_SERVICE_MODES   // memories always show name + frequency
     {"ChDisp",      MENU_MDF           }, // was "MDF"
+#endif
+#ifndef ENABLE_FEAT_SERVICE_MODES   // (services: CHIRP)
     {"POnMsg",      MENU_PONMSG        },
+#endif
+#ifndef ENABLE_FEAT_SERVICE_MODES   // (services: CHIRP)
     {"BLTime",      MENU_ABR           }, // was "ABR"
+#endif
+#ifndef ENABLE_FEAT_SERVICE_MODES   // (services: CHIRP)
     {"BLMin",       MENU_ABR_MIN       },
+#endif
+#ifndef ENABLE_FEAT_SERVICE_MODES   // (services: CHIRP)
     {"BLMax",       MENU_ABR_MAX       },
+#endif
+#ifndef ENABLE_FEAT_SERVICE_MODES   // (services: CHIRP)
     {"BLTxRx",      MENU_ABR_ON_TX_RX  },
+#endif
+#ifndef ENABLE_FEAT_SERVICE_MODES   // (services: CHIRP)
     {"Beep",        MENU_BEEP          },
+#endif
 #ifdef ENABLE_VOICE
     {"Voice",       MENU_VOICE         },
 #endif
+#ifndef ENABLE_FEAT_SERVICE_MODES   // (services: CHIRP)
     {"Roger",       MENU_ROGER         },
+#endif
+#ifndef ENABLE_FEAT_SERVICE_MODES   // (services: CHIRP)
     {"STE",         MENU_STE           },
+#endif
+#ifndef ENABLE_FEAT_SERVICE_MODES   // (services: CHIRP)
     {"RP STE",      MENU_RP_STE        },
+#endif
+#ifndef ENABLE_FEAT_SERVICE_MODES   // (services: CHIRP, for now)
     {"1 Call",      MENU_1_CALL        },
+#endif
 #ifdef ENABLE_ALARM
     {"AlarmT",      MENU_AL_MOD        },
 #endif
@@ -124,35 +189,70 @@ const t_menu_item MenuList[] =
     {"D List",      MENU_D_LIST        },
 #endif
     {"D Live",      MENU_D_LIVE_DEC    }, // live DTMF decoder
+#ifdef ENABLE_FEAT_SERVICE_MODES
+#ifndef ENABLE_FEAT_SERVICE_MODES   // (services: SysInf / setup / the F editor / CHIRP)
+    {"T Live",      MENU_T_LIVE        }, // live CTCSS / DCS decoder: FRS / GMRS (AUTO), ALL, OFF
+#endif
+#endif
 #ifndef ENABLE_FEAT_F4HWN
     #ifdef ENABLE_AM_FIX
         {"AM Fix",      MENU_AM_FIX        },
     #endif
 #endif
+#if defined(ENABLE_VOX) && !defined(ENABLE_FEAT_SERVICE_MODES)   // (services: F+7; its level in CHIRP)
     {"VOX",         MENU_VOX           },
-#ifdef ENABLE_FEAT_F4HWN
+#endif
+#ifdef ENABLE_FEAT_SERVICE_MODES
+    // (SysInf: its own screen, the SYSTEM INFO side key)
+#elif defined(ENABLE_FEAT_F4HWN)
     {"SysInf",      MENU_VOL           }, // was "VOL"
 #else
     {"BatVol",      MENU_VOL           }, // was "VOL"
 #endif
+#ifndef ENABLE_FEAT_SERVICE_MODES   // (services: the A / B view's watch; PRIORITY / WATCH / OFF in CHIRP)
     {"RxMode",      MENU_TDR           },
+#endif
+#ifndef ENABLE_FEAT_SERVICE_MODES   // the F editor edits these (VFOs and memories)
     {"Sql",         MENU_SQL           },
+#endif
 #ifdef ENABLE_FEAT_F4HWN
+#ifndef ENABLE_FEAT_SERVICE_MODES   // (services: the F editor's power levels; U's level in CHIRP)
     {"SetPwr",      MENU_SET_PWR       },
+#endif
+#ifndef ENABLE_FEAT_SERVICE_MODES   // one PTT mode: held, or F + PTT latched
     {"SetPTT",      MENU_SET_PTT       },
+#endif
+#ifndef ENABLE_FEAT_SERVICE_MODES   // (services: CHIRP)
     {"SetTOT",      MENU_SET_TOT       },
+#endif
+#ifndef ENABLE_FEAT_SERVICE_MODES   // (services: CHIRP)
     {"SetEOT",      MENU_SET_EOT       },
+#endif
+#ifndef ENABLE_FEAT_SERVICE_MODES   // (services: the SysInf screen)
     {"SetCtr",      MENU_SET_CTR       },
+#endif
+#ifndef ENABLE_FEAT_SERVICE_MODES   // (services: the SysInf screen)
     {"SetInv",      MENU_SET_INV       },
+#endif
+#ifndef ENABLE_FEAT_SERVICE_MODES   // (services: CHIRP)
     {"SetLck",      MENU_SET_LCK       },
+#endif
+#ifndef ENABLE_FEAT_SERVICE_MODES   // classic meter / RX-TX timer: not in this layout
     {"SetMet",      MENU_SET_MET       },
+#endif
+#ifndef ENABLE_FEAT_SERVICE_MODES   // one layout
     {"SetGUI",      MENU_SET_GUI       },
+#endif
+#ifndef ENABLE_FEAT_SERVICE_MODES
     {"SetTmr",      MENU_SET_TMR       },
+#endif
 #ifdef ENABLE_FEAT_F4HWN_SLEEP
     {"SetOff",       MENU_SET_OFF      },
 #endif
 #ifdef ENABLE_FEAT_F4HWN_NARROWER
+#ifndef ENABLE_FEAT_SERVICE_MODES   // (services: per channel: the F editor's MODE (N+))
     {"SetNFM",      MENU_SET_NFM       },
+#endif
 #endif
 #ifdef ENABLE_FEAT_F4HWN_VOL
     {"SetVol",      MENU_SET_VOL       },
@@ -164,29 +264,54 @@ const t_menu_item MenuList[] =
     {"SetNWR",      MENU_NOAA_S    },
 #endif
 #endif
+#ifdef ENABLE_FEAT_SERVICE_MODES
+#ifndef ENABLE_FEAT_SERVICE_MODES   // (services: the walkie channels' F editor, full screen)
+    {"SubCod",      MENU_SUBCODE       }, // GMRS privacy-code numbering (radio make/model)
+#endif
+#ifndef ENABLE_FEAT_SERVICE_MODES   // (services: the SysInf screen)
+    {"Region",      MENU_HAM_REGION    }, // ham channels + bands, marine plan: US / Canada / international
+#endif
+#ifndef ENABLE_FEAT_SERVICE_MODES   // (services: SysInf / setup / the F editor / CHIRP)
+    {"TX Any",      MENU_TX_ANY        }, // lift all TX blocks (receive-only channels, weather, broadcast, F Lock)
+#endif
+#endif
     // hidden menu items from here on
     // enabled if pressing both the PTT and upper side button at power-on
+#ifndef ENABLE_FEAT_SERVICE_MODES   // HamRgn sets the TX bands
     {"F Lock",      MENU_F_LOCK        },
+#endif
 #ifndef ENABLE_FEAT_F4HWN
     {"Tx 200",      MENU_200TX         }, // was "200TX"
     {"Tx 350",      MENU_350TX         }, // was "350TX"
     {"Tx 500",      MENU_500TX         }, // was "500TX"
 #endif
+#ifndef ENABLE_FEAT_SERVICE_MODES   // (VFO slots are switched on / off instead, in CHIRP)
     {"350 En",      MENU_350EN         }, // was "350EN"
+#endif
 #ifndef ENABLE_FEAT_F4HWN
     {"ScraEn",      MENU_SCREN         }, // was "SCREN"
 #endif
 #ifdef ENABLE_F_CAL_MENU
     {"FrCali",      MENU_F_CALI        }, // reference xtal calibration
 #endif
+#ifndef ENABLE_FEAT_SERVICE_MODES   // (services: the SysInf screen)
     {"BatCal",      MENU_BATCAL        }, // battery voltage calibration
+#endif
+#ifndef ENABLE_FEAT_SERVICE_MODES   // (services: the SysInf screen)
     {"BatTyp",      MENU_BATTYP        }, // battery type 1600/2200mAh
+#endif
+#ifndef ENABLE_FEAT_SERVICE_MODES   // (services: EXIT held at power-up: the reset screen)
     {"Reset",       MENU_RESET         }, // might be better to move this to the hidden menu items ?
+#endif
 
     {"",                              0xff               }  // end of list - DO NOT delete or move this this
 };
 
+#ifdef ENABLE_FEAT_SERVICE_MODES   // (no hidden section: BatCal / BatTyp are on the SysInf screen)
+const uint8_t FIRST_HIDDEN_MENU_ITEM = 0xFF;   // (the end of the list)
+#else
 const uint8_t FIRST_HIDDEN_MENU_ITEM = MENU_F_LOCK;
+#endif
 
 const char gSubMenu_TXP[][6] =
 {
@@ -224,6 +349,7 @@ const char gSubMenu_NA[4] =
     "N/A"
 };
 
+#ifndef ENABLE_FEAT_SERVICE_MODES   // the A / B view and its watch replaced RxMode
 const char* const gSubMenu_RXMode[] =
 {
     "MAIN\nONLY",       // TX and RX on main only
@@ -231,6 +357,7 @@ const char* const gSubMenu_RXMode[] =
     "CROSS\nBAND",      // TX on main, RX on secondary
     "MAIN TX\nDUAL RX"  // always TX on main, but RX on both
 };
+#endif
 
 #ifdef ENABLE_VOICE
     const char gSubMenu_VOICE[][4] =
@@ -241,6 +368,7 @@ const char* const gSubMenu_RXMode[] =
     };
 #endif
 
+#ifndef ENABLE_FEAT_SERVICE_MODES
 const char* const gSubMenu_MDF[] =
 {
     "FREQ",
@@ -248,6 +376,7 @@ const char* const gSubMenu_MDF[] =
     "NAME",
     "NAME\n+\nFREQ"
 };
+#endif
 
 #ifdef ENABLE_ALARM
     const char gSubMenu_AL_MOD[][5] =
@@ -302,6 +431,7 @@ const char gSubMenu_RESET[][4] =
     "ALL"
 };
 
+#ifndef ENABLE_FEAT_SERVICE_MODES
 const char * const gSubMenu_F_LOCK[] =
 {
     "DEFAULT+\n137-174\n400-470",
@@ -322,6 +452,7 @@ const char * const gSubMenu_F_LOCK[] =
     "DISABLE\nALL",
     "UNLOCK\nALL",
 };
+#endif
 
 const char gSubMenu_RX_TX[][6] =
 {
@@ -445,6 +576,11 @@ const t_sidefunction gSubMenu_SIDEFUNCTIONS[] =
     {"REGA\nALARM",     ACTION_OPT_REGA_ALARM},
     {"REGA\nTEST",      ACTION_OPT_REGA_TEST},
 #endif
+#ifdef ENABLE_FEAT_SERVICE_MODES
+    {"SQUELCH\nUP",     ACTION_OPT_SQUELCH_UP},
+    {"SQUELCH\nDOWN",   ACTION_OPT_SQUELCH_DOWN},
+    {"SYSTEM\nINFO",    ACTION_OPT_SYSINFO},
+#endif
     {"LOCK\nKEYPAD",    ACTION_OPT_KEYLOCK},
     {"VFO A\nVFO B",    ACTION_OPT_A_B},
     {"VFO\nMEM",        ACTION_OPT_VFO_MR},
@@ -453,9 +589,13 @@ const t_sidefunction gSubMenu_SIDEFUNCTIONS[] =
     {"BLMIN\nTMP OFF",  ACTION_OPT_BLMIN_TMP_OFF},      //BackLight Minimum Temporay OFF
 #endif
 #ifdef ENABLE_FEAT_F4HWN
+#ifndef ENABLE_FEAT_SERVICE_MODES   // the A / B view and its watch replaced RxMode
     {"RX MODE",         ACTION_OPT_RXMODE},
     {"MAIN ONLY",       ACTION_OPT_MAINONLY},
+#endif
+#ifndef ENABLE_FEAT_SERVICE_MODES
     {"PTT",             ACTION_OPT_PTT},
+#endif
     {"WIDE\nNARROW",    ACTION_OPT_WN},
     #if !defined(ENABLE_SPECTRUM) || !defined(ENABLE_FMRADIO)
     {"MUTE",            ACTION_OPT_MUTE},
@@ -615,17 +755,22 @@ void UI_DisplayMenu(void)
 
     switch (UI_MENU_GetCurrentMenuId())
     {
+#ifndef ENABLE_FEAT_SERVICE_MODES   // the F editor edits these (VFOs and memories)
         case MENU_SQL:
             sprintf(String, "%d", gSubMenuSelection);
             break;
+#endif
 
+#ifndef ENABLE_FEAT_SERVICE_MODES
         case MENU_MIC:
             {   // display the mic gain in actual dB rather than just an index number
                 const uint8_t mic = gMicGain_dB2[gSubMenuSelection];
                 sprintf(String, "+%u.%01udB", mic / 2, mic % 2);
             }
             break;
+#endif
 
+#ifndef ENABLE_FEAT_SERVICE_MODES   // the F editor edits these (VFOs and memories)
         case MENU_MIC_BAR:
             #ifdef ENABLE_AUDIO_BAR
                 strcpy(String, gSubMenu_OFF_ON[gSubMenuSelection]);
@@ -633,7 +778,9 @@ void UI_DisplayMenu(void)
                 strcpy(String, gSubMenu_NA);
             #endif
             break;
+#endif
 
+#ifndef ENABLE_FEAT_SERVICE_MODES   // the F editor edits these (VFOs and memories)
         case MENU_STEP: {
             uint16_t step = gStepFrequencyTable[FREQUENCY_GetStepIdxFromSortedIdx(gSubMenuSelection)];
             sprintf(String, "%d.%02ukHz", step / 100, step % 100);
@@ -696,6 +843,7 @@ void UI_DisplayMenu(void)
         case MENU_W_N:
             strcpy(String, gSubMenu_W_N[gSubMenuSelection]);
             break;
+#endif
 
 #ifndef ENABLE_FEAT_F4HWN
         case MENU_SCR:
@@ -709,6 +857,7 @@ void UI_DisplayMenu(void)
             break;
 #endif
 
+#ifndef ENABLE_FEAT_SERVICE_MODES
         case MENU_VOX:
             #ifdef ENABLE_VOX
                 sprintf(String, gSubMenuSelection == 0 ? gSubMenu_OFF_ON[0] : "%u", gSubMenuSelection);
@@ -716,7 +865,9 @@ void UI_DisplayMenu(void)
                 strcpy(String, gSubMenu_NA);
             #endif
             break;
+#endif
 
+#ifndef ENABLE_FEAT_SERVICE_MODES
         case MENU_ABR:
             if(gSubMenuSelection == 0)
             {
@@ -741,8 +892,12 @@ void UI_DisplayMenu(void)
             //if(BACKLIGHT_GetBrightness() < 4)
             //    BACKLIGHT_SetBrightness(4);
             break;
+#endif
 
+#ifndef ENABLE_FEAT_SERVICE_MODES
         case MENU_ABR_MIN:
+#endif
+#ifndef ENABLE_FEAT_SERVICE_MODES
         case MENU_ABR_MAX:
             sprintf(String, "%d", gSubMenuSelection);
             if(gIsInSubMenu)
@@ -751,11 +906,15 @@ void UI_DisplayMenu(void)
             //else if(BACKLIGHT_GetBrightness() < 4)
             //    BACKLIGHT_SetBrightness(4);
             break;
+#endif
 
+#ifndef ENABLE_FEAT_SERVICE_MODES   // the F editor edits these (VFOs and memories)
         case MENU_AM:
             strcpy(String, gModulationStr[gSubMenuSelection]);
             break;
+#endif
 
+#ifndef ENABLE_FEAT_SERVICE_MODES
         case MENU_AUTOLK:
             if (gSubMenuSelection == 0)
                 strcpy(String, gSubMenu_OFF_ON[0]);
@@ -770,11 +929,16 @@ void UI_DisplayMenu(void)
                 #endif
             }
             break;
+#endif
 
+#ifndef ENABLE_FEAT_SERVICE_MODES
         case MENU_COMPAND:
+#endif
+#ifndef ENABLE_FEAT_SERVICE_MODES
         case MENU_ABR_ON_TX_RX:
             strcpy(String, gSubMenu_RX_TX[gSubMenuSelection]);
             break;
+#endif
 
         #ifndef ENABLE_FEAT_F4HWN
             #ifdef ENABLE_AM_FIX
@@ -782,11 +946,17 @@ void UI_DisplayMenu(void)
             #endif
         #endif
         case MENU_BCL:
+#ifndef ENABLE_FEAT_SERVICE_MODES
         case MENU_BEEP:
+#endif
+#ifndef ENABLE_FEAT_SERVICE_MODES
         case MENU_S_ADD1:
         case MENU_S_ADD2:
         case MENU_S_ADD3:
+#endif
+#ifndef ENABLE_FEAT_SERVICE_MODES
         case MENU_STE:
+#endif
         case MENU_D_ST:
 #ifdef ENABLE_DTMF_CALLING
         case MENU_D_DCD:
@@ -810,18 +980,28 @@ void UI_DisplayMenu(void)
             strcpy(String, gSubMenu_OFF_ON[gSubMenuSelection]);
             break;
 
+#ifndef ENABLE_FEAT_SERVICE_MODES
         case MENU_MEM_CH:
+#endif
         case MENU_1_CALL:
+#ifndef ENABLE_FEAT_SERVICE_MODES
         case MENU_DEL_CH:
+#endif
         {
             const bool valid = RADIO_CheckValidChannel(gSubMenuSelection, false, 0);
 
             UI_GenerateChannelStringEx(String, valid, gSubMenuSelection);
             UI_PrintString(String, menu_item_x1, menu_item_x2, 0, 8);
 
+#ifdef ENABLE_FEAT_SERVICE_MODES
+            if (!gAskForConfirmation && (valid || UI_MENU_GetCurrentMenuId() == MENU_MEM_CH))
+            {   // the channel's frequency; an empty one (ChSave): the frequency being saved
+                const uint32_t frequency = valid ? SETTINGS_FetchChannelFrequency(gSubMenuSelection) : gTxVfo->pRX->Frequency;
+#else
             if (valid && !gAskForConfirmation)
             {   // show the frequency so that the user knows the channels frequency
                 const uint32_t frequency = SETTINGS_FetchChannelFrequency(gSubMenuSelection);
+#endif
                 sprintf(String, "%u.%05u", frequency / 100000, frequency % 100000);
                 UI_PrintString(String, menu_item_x1, menu_item_x2, 4, 8);
             }
@@ -832,6 +1012,7 @@ void UI_DisplayMenu(void)
             break;
         }
 
+#ifndef ENABLE_FEAT_SERVICE_MODES
         case MENU_MEM_NAME:
         {
             const bool valid = RADIO_CheckValidChannel(gSubMenuSelection, false, 0);
@@ -871,15 +1052,21 @@ void UI_DisplayMenu(void)
             already_printed = true;
             break;
         }
+#endif
 
+#ifndef ENABLE_FEAT_SERVICE_MODES
         case MENU_SAVE:
             sprintf(String, gSubMenuSelection == 0 ? gSubMenu_OFF_ON[0] : "1:%u", gSubMenuSelection);
             break;
+#endif
 
+#ifndef ENABLE_FEAT_SERVICE_MODES   // the A / B view and its watch replaced RxMode
         case MENU_TDR:
             strcpy(String, gSubMenu_RXMode[gSubMenuSelection]);
             break;
+#endif
 
+#ifndef ENABLE_FEAT_SERVICE_MODES
         case MENU_TOT:
             sprintf(String, "%02dm:%02ds", (((gSubMenuSelection + 1) * 5) / 60), (((gSubMenuSelection + 1) * 5) % 60));
             #if !defined(ENABLE_SPECTRUM) || !defined(ENABLE_FMRADIO)
@@ -889,6 +1076,7 @@ void UI_DisplayMenu(void)
             gaugeMax = 179;
             #endif
             break;
+#endif
 
         #ifdef ENABLE_VOICE
             case MENU_VOICE:
@@ -896,6 +1084,7 @@ void UI_DisplayMenu(void)
                 break;
         #endif
 
+#ifndef ENABLE_FEAT_SERVICE_MODES
         case MENU_SC_REV:
             if(gSubMenuSelection == 0)
             {
@@ -922,15 +1111,21 @@ void UI_DisplayMenu(void)
                 #endif
             }
             break;
+#endif
 
+#ifndef ENABLE_FEAT_SERVICE_MODES
         case MENU_MDF:
             strcpy(String, gSubMenu_MDF[gSubMenuSelection]);
             break;
+#endif
 
+#ifndef ENABLE_FEAT_SERVICE_MODES
         case MENU_RP_STE:
             sprintf(String, gSubMenuSelection == 0 ? gSubMenu_OFF_ON[0] : "%u*100ms", gSubMenuSelection);
             break;
+#endif
 
+#ifndef ENABLE_FEAT_SERVICE_MODES   // (no SList menu: a scan covers the VFO's group)
         case MENU_S_LIST:
             if (gSubMenuSelection == 0)
                 strcpy(String, "LIST [0]\nNO LIST");
@@ -941,6 +1136,7 @@ void UI_DisplayMenu(void)
             else if (gSubMenuSelection == 5)
                 strcpy(String, "ALL");
             break;
+#endif
 
         #ifdef ENABLE_ALARM
             case MENU_AL_MOD:
@@ -978,9 +1174,11 @@ void UI_DisplayMenu(void)
             strcpy(String, gSubMenu_PTT_ID[gSubMenuSelection]);
             break;
 
+#ifndef ENABLE_FEAT_SERVICE_MODES
         case MENU_BAT_TXT:
             strcpy(String, gSubMenu_BAT_TXT[gSubMenuSelection]);
             break;
+#endif
 
 #ifdef ENABLE_DTMF_CALLING
         case MENU_D_LIST:
@@ -992,14 +1190,19 @@ void UI_DisplayMenu(void)
             break;
 #endif
 
+#ifndef ENABLE_FEAT_SERVICE_MODES
         case MENU_PONMSG:
             strcpy(String, gSubMenu_PONMSG[gSubMenuSelection]);
             break;
+#endif
 
+#ifndef ENABLE_FEAT_SERVICE_MODES
         case MENU_ROGER:
             strcpy(String, gSubMenu_ROGER[gSubMenuSelection]);
             break;
+#endif
 
+#ifndef ENABLE_FEAT_SERVICE_MODES
         case MENU_VOL:
 #ifdef ENABLE_FEAT_F4HWN
             sprintf(String, "%s\n%s",
@@ -1012,11 +1215,43 @@ void UI_DisplayMenu(void)
                 BATTERY_VoltsToPercent(gBatteryVoltageAverage));
 #endif
             break;
+#endif
 
+#ifndef ENABLE_FEAT_SERVICE_MODES
         case MENU_RESET:
             strcpy(String, gSubMenu_RESET[gSubMenuSelection]);
             break;
+#endif
 
+#ifdef ENABLE_FEAT_SERVICE_MODES
+#ifndef ENABLE_FEAT_SERVICE_MODES
+        case MENU_SUBCODE:   // INTL, UK: PMR446 / Ofcom numbering by the channel
+            strcpy(String, SERVICE_IsPmr() ? "AUTO" : gSubMenu_SUBCODE[gSubMenuSelection]);
+            break;
+#endif
+
+        case MENU_T_LIVE: {
+            static const char names[][5] = { "AUTO", "ALL", "OFF" };
+            strcpy(String, names[gSubMenuSelection]);
+            break;
+        }
+
+#ifndef ENABLE_FEAT_SERVICE_MODES
+        case MENU_TX_ANY:
+            strcpy(String, gSubMenuSelection ? "ALLOW\nCAUTION" : "BLOCK");
+            break;
+#endif
+
+#ifndef ENABLE_FEAT_SERVICE_MODES
+        case MENU_HAM_REGION:
+            strcpy(String, gSubMenu_HAM_REGION[gSubMenuSelection]);
+            break;
+#endif
+
+
+#endif
+
+#ifndef ENABLE_FEAT_SERVICE_MODES
         case MENU_F_LOCK:
 #ifdef ENABLE_FEAT_F4HWN
             if(!gIsInSubMenu && gUnlockAllTxConfCnt>0 && gUnlockAllTxConfCnt<3)
@@ -1027,6 +1262,7 @@ void UI_DisplayMenu(void)
             else
                 strcpy(String, gSubMenu_F_LOCK[gSubMenuSelection]);
             break;
+#endif
 
         #ifdef ENABLE_F_CAL_MENU
             case MENU_F_CALI:
@@ -1043,24 +1279,38 @@ void UI_DisplayMenu(void)
                 break;
         #endif
 
+#ifndef ENABLE_FEAT_SERVICE_MODES
         case MENU_BATCAL:
         {
             const uint16_t vol = (uint32_t)gBatteryVoltageAverage * gBatteryCalibration[3] / gSubMenuSelection;
             sprintf(String, "%u.%02uV\n%u", vol / 100, vol % 100, gSubMenuSelection);
             break;
         }
+#endif
 
+#ifndef ENABLE_FEAT_SERVICE_MODES
         case MENU_BATTYP:
             strcpy(String, gSubMenu_BATTYP[gSubMenuSelection]);
             break;
+#endif
 
+#ifndef ENABLE_FEAT_SERVICE_MODES
         case MENU_F1SHRT:
+#endif
+#ifndef ENABLE_FEAT_SERVICE_MODES
         case MENU_F1LONG:
+#endif
+#ifndef ENABLE_FEAT_SERVICE_MODES
         case MENU_F2SHRT:
+#endif
+#ifndef ENABLE_FEAT_SERVICE_MODES
         case MENU_F2LONG:
+#endif
+#ifndef ENABLE_FEAT_SERVICE_MODES
         case MENU_MLONG:
             strcpy(String, gSubMenu_SIDEFUNCTIONS[gSubMenuSelection].name);
             break;
+#endif
 
 #ifdef ENABLE_FEAT_F4HWN_SLEEP
         case MENU_SET_OFF:
@@ -1082,19 +1332,28 @@ void UI_DisplayMenu(void)
 #endif
 
 #ifdef ENABLE_FEAT_F4HWN
+#ifndef ENABLE_FEAT_SERVICE_MODES
         case MENU_SET_PWR:
             sprintf(String, "%s\n%sW", gSubMenu_TXP[gSubMenuSelection + 1], gSubMenu_SET_PWR[gSubMenuSelection]);
             break;
+#endif
     
+#ifndef ENABLE_FEAT_SERVICE_MODES
         case MENU_SET_PTT:
             strcpy(String, gSubMenu_SET_PTT[gSubMenuSelection]);
             break;
+#endif
 
+#ifndef ENABLE_FEAT_SERVICE_MODES
         case MENU_SET_TOT:
+#endif
+#ifndef ENABLE_FEAT_SERVICE_MODES
         case MENU_SET_EOT:
             strcpy(String, gSubMenu_SET_TOT[gSubMenuSelection]); // Same as SET_TOT
             break;
+#endif
 
+#ifndef ENABLE_FEAT_SERVICE_MODES
         case MENU_SET_CTR:
             #ifdef ENABLE_FEAT_F4HWN_CTR
                 sprintf(String, "%d", gSubMenuSelection);
@@ -1104,7 +1363,9 @@ void UI_DisplayMenu(void)
                 strcpy(String, gSubMenu_NA);
             #endif
             break;
+#endif
 
+#ifndef ENABLE_FEAT_SERVICE_MODES
         case MENU_SET_INV:
             #ifdef ENABLE_FEAT_F4HWN_INV
                 strcpy(String, gSubMenu_OFF_ON[gSubMenuSelection]);
@@ -1113,7 +1374,9 @@ void UI_DisplayMenu(void)
                 strcpy(String, gSubMenu_NA);
             #endif
             break;
+#endif
 
+#ifndef ENABLE_FEAT_SERVICE_MODES
         case MENU_TX_LOCK:
             if(TX_freq_check(gEeprom.VfoInfo[gEeprom.TX_VFO].pTX->Frequency) == 0)
             {
@@ -1124,20 +1387,27 @@ void UI_DisplayMenu(void)
                 strcpy(String, gSubMenu_OFF_ON[gSubMenuSelection]);
             }
             break;
+#endif
 
+#ifndef ENABLE_FEAT_SERVICE_MODES
         case MENU_SET_LCK:
             strcpy(String, gSubMenu_SET_LCK[gSubMenuSelection]);
             break;
+#endif
 
+#ifndef ENABLE_FEAT_SERVICE_MODES   // (not in the services menu)
         case MENU_SET_MET:
         case MENU_SET_GUI:
             strcpy(String, gSubMenu_SET_MET[gSubMenuSelection]); // Same as SET_MET
             break;
+#endif
 
         #ifdef ENABLE_FEAT_F4HWN_NARROWER
+#ifndef ENABLE_FEAT_SERVICE_MODES
             case MENU_SET_NFM:
                 strcpy(String, gSubMenu_SET_NFM[gSubMenuSelection]);
                 break;
+#endif
         #endif
 
         #ifdef ENABLE_FEAT_F4HWN_VOL
@@ -1219,6 +1489,7 @@ void UI_DisplayMenu(void)
             y = (small ? 3 : 2) - (lines / 2); 
 
             // only for SysInf
+#ifndef ENABLE_FEAT_SERVICE_MODES   // (services: its own screen)
             if(UI_MENU_GetCurrentMenuId() == MENU_VOL)
             {
                 sprintf(edit, "%u.%02uV %u%%",
@@ -1234,6 +1505,7 @@ void UI_DisplayMenu(void)
 
                 y = 2;
             }
+#endif
 
             // draw the text lines
             for (i = 0; i < len && lines > 0; lines--)
@@ -1256,6 +1528,7 @@ void UI_DisplayMenu(void)
         }
     }
 
+#ifndef ENABLE_FEAT_SERVICE_MODES   // (no SList menus: CHIRP's Banks)
     if (UI_MENU_GetCurrentMenuId() == MENU_SLIST1 || UI_MENU_GetCurrentMenuId() == MENU_SLIST2 || UI_MENU_GetCurrentMenuId() == MENU_SLIST3)
     {
         i = UI_MENU_GetCurrentMenuId() - MENU_SLIST1;
@@ -1294,6 +1567,7 @@ void UI_DisplayMenu(void)
             */
 
             UI_PrintStringSmallNormal(pPrintStr, menu_item_x1, menu_item_x2, 2);
+#ifndef ENABLE_FEAT_SERVICE_MODES   // (no scan-list priority channels)
 
             for (uint8_t pri = 1; pri <= 2; pri++) {
                 uint8_t channel = (pri == 1) ? gEeprom.SCANLIST_PRIORITY_CH1[i] : gEeprom.SCANLIST_PRIORITY_CH2[i];
@@ -1303,12 +1577,16 @@ void UI_DisplayMenu(void)
                     UI_PrintString(String, menu_item_x1, menu_item_x2, pri * 2 + 1, 8);
                 }
             }
+#endif
 
         }
     }
+#endif
 
+#ifndef ENABLE_FEAT_SERVICE_MODES   // the F editor edits these (VFOs and memories)
     if ((UI_MENU_GetCurrentMenuId() == MENU_R_CTCS || UI_MENU_GetCurrentMenuId() == MENU_R_DCS) && gCssBackgroundScan)
         UI_PrintString("SCAN", menu_item_x1, menu_item_x2, 4, 8);
+#endif
 
 #ifdef ENABLE_DTMF_CALLING
     if (UI_MENU_GetCurrentMenuId() == MENU_D_LIST && gIsDtmfContactValid) {
@@ -1319,6 +1597,7 @@ void UI_DisplayMenu(void)
     }
 #endif
 
+#ifndef ENABLE_FEAT_SERVICE_MODES   // the F editor edits these (VFOs and memories)
     if (UI_MENU_GetCurrentMenuId() == MENU_R_CTCS ||
         UI_MENU_GetCurrentMenuId() == MENU_T_CTCS ||
         UI_MENU_GetCurrentMenuId() == MENU_R_DCS  ||
@@ -1330,10 +1609,14 @@ void UI_DisplayMenu(void)
         sprintf(String, "%2d", gSubMenuSelection);
         UI_PrintStringSmallNormal(String, 105, 0, 0);
     }
+#endif
 
     if ((UI_MENU_GetCurrentMenuId() == MENU_RESET    ||
          UI_MENU_GetCurrentMenuId() == MENU_MEM_CH   ||
          UI_MENU_GetCurrentMenuId() == MENU_MEM_NAME ||
+#ifdef ENABLE_FEAT_SERVICE_MODES
+         UI_MENU_GetCurrentMenuId() == MENU_TX_ANY   ||
+#endif
          UI_MENU_GetCurrentMenuId() == MENU_DEL_CH) && gAskForConfirmation)
     {   // display confirmation
         char *pPrintStr = (gAskForConfirmation == 1) ? "SURE?" : "WAIT!";

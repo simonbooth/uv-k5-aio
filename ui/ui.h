@@ -26,7 +26,7 @@ enum GUI_DisplayType_t
     DISPLAY_MENU,
     DISPLAY_SCANNER,
 
-#ifdef ENABLE_FMRADIO
+#ifdef ENABLE_FMRADIO_SCREEN
     DISPLAY_FM,
 #endif
 
@@ -36,6 +36,12 @@ enum GUI_DisplayType_t
 
 #ifdef ENABLE_REGA
     DISPLAY_REGA,
+#endif
+
+#ifdef ENABLE_FEAT_SERVICE_MODES
+    DISPLAY_SYSINFO,   // battery / firmware (app/sysinfo.c)
+    DISPLAY_RESET,     // reset to defaults (app/sysinfo.c)
+    DISPLAY_CONFIRM,   // a warning to accept (app/sysinfo.c)
 #endif
 
     DISPLAY_N_ELEM,

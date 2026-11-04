@@ -36,19 +36,49 @@
     #define SWAP(a, b) ({ __typeof__ (a) _c = (a);  a = b; b = _c; })
 #endif
 
+#ifdef ENABLE_FEAT_SERVICE_MODES
+    #include "svc_plans.h"
+    #define SVC_GMRS_COUNT   PLAN_GMRS_COUNT
+    #define SVC_MARINE_COUNT PLAN_MARINE_MAX   // largest marine plan; smaller plans use a prefix
+#endif
+
 #define IS_MR_CHANNEL(x)       ((x) <= MR_CHANNEL_LAST)
 #define IS_FREQ_CHANNEL(x)     ((x) >= FREQ_CHANNEL_FIRST && (x) <= FREQ_CHANNEL_LAST)
 #define IS_VALID_CHANNEL(x)    ((x) < LAST_CHANNEL)
-#define IS_NOAA_CHANNEL(x)     ((x) >= NOAA_CHANNEL_FIRST && (x) <= NOAA_CHANNEL_LAST)
+#ifdef ENABLE_FEAT_SERVICE_MODES   // marine weather replaces the stock NOAA channels
+    #ifdef ENABLE_NOAA
+        #error "ENABLE_NOAA has no place in the Services edition (marine WX channels instead)"
+    #endif
+    #define IS_NOAA_CHANNEL(x)     false
+    #define FREQ_CHANNEL_DEFAULT   (FREQ_CHANNEL_FIRST + SLOT_70CM)
+#else
+    #define IS_NOAA_CHANNEL(x)     ((x) >= NOAA_CHANNEL_FIRST && (x) <= NOAA_CHANNEL_LAST)
+    #define FREQ_CHANNEL_DEFAULT   (FREQ_CHANNEL_FIRST + BAND6_400MHz)
+#endif
 
 enum {
     MR_CHANNEL_FIRST   = 0,
     MR_CHANNEL_LAST    = 199u,
     FREQ_CHANNEL_FIRST = 200u,
+#ifdef ENABLE_FEAT_SERVICE_MODES
+    FREQ_CHANNEL_LAST  = FREQ_CHANNEL_FIRST + SLOT_COUNT - 1,   // the VFO slots (svc_plans.h)
+    SVC_GMRS_FIRST,
+    SVC_GMRS_LAST      = SVC_GMRS_FIRST + SVC_GMRS_COUNT - 1,
+    SVC_MARINE_FIRST,
+    SVC_MARINE_LAST    = SVC_MARINE_FIRST + SVC_MARINE_COUNT - 1,
+    SVC_AIR_FIRST,
+    SVC_AIR_LAST       = SVC_AIR_FIRST + PLAN_AIR_COUNT - 1,
+    SVC_HAM_FIRST,     // built-in ham channels: the HAM mode's list before the memories
+    SVC_HAM_LAST       = SVC_HAM_FIRST + PLAN_HAM_COUNT - 1,
+    LAST_CHANNEL,
+    NOAA_CHANNEL_FIRST = LAST_CHANNEL,   // (none: see IS_NOAA_CHANNEL)
+    NOAA_CHANNEL_LAST  = LAST_CHANNEL,
+#else
     FREQ_CHANNEL_LAST  = 206u,
     NOAA_CHANNEL_FIRST = 207u,
     NOAA_CHANNEL_LAST  = 216u,
     LAST_CHANNEL
+#endif
 };
 
 enum {
@@ -153,7 +183,11 @@ extern bool                  gSetting_200TX;
 extern bool                  gSetting_500TX;
 #endif
 
+#ifdef ENABLE_FEAT_SERVICE_MODES   // VFO slots are switched on / off instead (CHIRP)
+    #define gSetting_350EN           true
+#else
 extern bool                  gSetting_350EN;
+#endif
 extern uint8_t               gSetting_F_LOCK;
 extern bool                  gSetting_ScrambleEnable;
 
@@ -177,7 +211,11 @@ extern enum BacklightOnRxTx_t gSetting_backlight_on_tx_rx;
     extern uint8_t            gSetting_set_eot;
     extern bool               gSetting_set_lck;
     extern bool               gSetting_set_met;
+#ifdef ENABLE_FEAT_SERVICE_MODES
+    #define gSetting_set_gui 0   // one layout: the classic-GUI branches compile away
+#else
     extern bool               gSetting_set_gui;
+#endif
     #ifdef ENABLE_FEAT_F4HWN_NARROWER
         extern bool               gSetting_set_nfm;
     #endif
@@ -229,8 +267,8 @@ typedef union {
     uint8_t __val;
 } ChannelAttributes_t;
 
-extern ChannelAttributes_t   gMR_ChannelAttributes[207];
-extern bool                  gMR_ChannelExclude[207];
+extern ChannelAttributes_t   gMR_ChannelAttributes[FREQ_CHANNEL_LAST + 1];
+extern bool                  gMR_ChannelExclude[FREQ_CHANNEL_LAST + 1];
 
 extern volatile uint16_t     gBatterySaveCountdown_10ms;
 
@@ -336,7 +374,7 @@ extern bool                  g_SquelchLost;
 extern volatile uint16_t     gFlashLightBlinkCounter;
 
 extern bool                  gFlagEndTransmission;
-extern uint8_t               gNextMrChannel;
+extern uint16_t              gNextMrChannel;
 extern ReceptionMode_t       gRxReceptionMode;
 
  //TRUE when dual watch is momentarly suspended and RX_VFO is locked to either last TX or RX
@@ -345,6 +383,9 @@ extern uint8_t               gAlarmToneCounter;
 extern uint16_t              gAlarmRunningCounter;
 extern bool                  gKeyBeingHeld;
 extern bool                  gPttIsPressed;
+#ifdef ENABLE_FEAT_SERVICE_MODES
+extern bool                  gPttLatched;     // PTT tapped: transmitting with PTT released
+#endif
 extern uint8_t               gPttDebounceCounter;
 extern uint8_t               gMenuListCount;
 extern uint8_t               gBackup_CROSS_BAND_RX_TX;

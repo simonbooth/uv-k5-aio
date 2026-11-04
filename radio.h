@@ -59,6 +59,9 @@ typedef enum {
     MODULATION_FM,
     MODULATION_AM,
     MODULATION_USB,
+#if defined(ENABLE_FMRADIO) && !defined(ENABLE_FMRADIO_SCREEN)
+    MODULATION_BFM,   // broadcast FM on the FM chip (FM in 87.5-108 MHz becomes this)
+#endif
 
 #ifdef ENABLE_BYP_RAW_DEMODULATORS
     MODULATION_BYP,
@@ -69,6 +72,17 @@ typedef enum {
 } ModulationMode_t;
 
 extern const char gModulationStr[MODULATION_UKNOWN][4];
+#if defined(ENABLE_FMRADIO) && !defined(ENABLE_FMRADIO_SCREEN)
+#endif
+
+// The narrower NFM filter (N+): a channel's own (services), else the SetNFM setting.
+#ifdef ENABLE_FEAT_SERVICE_MODES
+    #define VFO_F_NARROWER  0x01u   // NFM uses the narrower filter (N+)
+    #define VFO_F_CALL      0x02u   // a Call channel (favourite)
+    #define NARROWER_ON(vfo) (((vfo)->SvcFlags & VFO_F_NARROWER) != 0)
+#else
+    #define NARROWER_ON(vfo) (gSetting_set_nfm == 1)
+#endif
 
 typedef struct
 {
@@ -95,7 +109,7 @@ typedef struct VFO_Info_t
     uint32_t       TX_OFFSET_FREQUENCY;
     uint16_t       StepFrequency;
 
-    uint8_t        CHANNEL_SAVE;
+    uint16_t       CHANNEL_SAVE;
 
     uint8_t        TX_OFFSET_FREQUENCY_DIRECTION;
 
@@ -108,11 +122,15 @@ typedef struct VFO_Info_t
 
     STEP_Setting_t STEP_SETTING;
     uint8_t        TX_LOCK;
+    uint8_t        TX_OFF;     // power OFF: this channel does not transmit
     uint8_t        OUTPUT_POWER;
     uint8_t        TXP_CalculatedSetting;
     bool           FrequencyReverse;
 
     uint8_t        SCRAMBLING_TYPE;
+#ifdef ENABLE_FEAT_SERVICE_MODES
+    uint8_t        SvcFlags;   // VFO_F_*: the channel record's byte 15 (was the scrambler)
+#endif
     uint8_t        CHANNEL_BANDWIDTH;
 
     uint8_t        SCANLIST1_PARTICIPATION;
@@ -151,8 +169,11 @@ extern DCS_CodeType_t gCurrentCodeType;
 extern VfoState_t     VfoState[2];
 
 bool     RADIO_CheckValidChannel(uint16_t channel, bool checkScanList, uint8_t scanList);
-uint8_t  RADIO_FindNextChannel(uint8_t ChNum, int8_t Direction, bool bCheckScanList, uint8_t RadioNum);
-void     RADIO_InitInfo(VFO_Info_t *pInfo, const uint8_t ChannelSave, const uint32_t Frequency);
+// Channel numbers are 16-bit: memory and VFO channels keep their stock numbers,
+// built-in service plans live above them. RADIO_FindNextChannel returns 0xFFFF
+// when nothing is found.
+uint16_t RADIO_FindNextChannel(uint16_t ChNum, int8_t Direction, bool bCheckScanList, uint8_t RadioNum);
+void     RADIO_InitInfo(VFO_Info_t *pInfo, const uint16_t ChannelSave, const uint32_t Frequency);
 void     RADIO_ConfigureChannel(const unsigned int VFO, const unsigned int configure);
 void     RADIO_ConfigureSquelchAndOutputPower(VFO_Info_t *pInfo);
 void     RADIO_ApplyOffset(VFO_Info_t *pInfo);

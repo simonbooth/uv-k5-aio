@@ -24,6 +24,7 @@
 #include "driver/bk4819.h"
 #include "driver/eeprom.h"
 #include "misc.h"
+#include "service.h"
 #include "settings.h"
 #include "ui/menu.h"
 
@@ -91,14 +92,33 @@ void SETTINGS_InitEEPROM(void)
         gEeprom.VFO_OPEN              = (Data[7] < 2) ? Data[7] : true;
     #endif
 
-    // 0E80..0E87
+    {   // 1D00..1D0F: 16-bit channel numbers. Erased (first boot after upgrading)
+        // falls back to the stock 8-bit block at 0E80 so the radio keeps its channels.
+        uint16_t Idx[6];
+        EEPROM_ReadBuffer(EEPROM_VFO_INDICES, Idx, sizeof(Idx));
+        if (Idx[0] != 0xFFFF) {
+            gEeprom.ScreenChannel[0] = IS_VALID_CHANNEL(Idx[0]) ? Idx[0] : FREQ_CHANNEL_DEFAULT;
+            gEeprom.MrChannel[0]     = IS_MR_CHANNEL(Idx[1])    ? Idx[1] : MR_CHANNEL_FIRST;
+            gEeprom.FreqChannel[0]   = IS_FREQ_CHANNEL(Idx[2])  ? Idx[2] : FREQ_CHANNEL_DEFAULT;
+            gEeprom.ScreenChannel[1] = IS_VALID_CHANNEL(Idx[3]) ? Idx[3] : FREQ_CHANNEL_DEFAULT;
+            gEeprom.MrChannel[1]     = IS_MR_CHANNEL(Idx[4])    ? Idx[4] : MR_CHANNEL_FIRST;
+            gEeprom.FreqChannel[1]   = IS_FREQ_CHANNEL(Idx[5])  ? Idx[5] : FREQ_CHANNEL_DEFAULT;
+            goto vfo_indices_done;
+        }
+    }
+
+    // 0E80..0E87 (legacy 8-bit layout)
     EEPROM_ReadBuffer(0x0E80, Data, 8);
-    gEeprom.ScreenChannel[0]   = IS_VALID_CHANNEL(Data[0]) ? Data[0] : (FREQ_CHANNEL_FIRST + BAND6_400MHz);
-    gEeprom.ScreenChannel[1]   = IS_VALID_CHANNEL(Data[3]) ? Data[3] : (FREQ_CHANNEL_FIRST + BAND6_400MHz);
+    gEeprom.ScreenChannel[0]   = IS_VALID_CHANNEL(Data[0]) ? Data[0] : FREQ_CHANNEL_DEFAULT;
+    gEeprom.ScreenChannel[1]   = IS_VALID_CHANNEL(Data[3]) ? Data[3] : FREQ_CHANNEL_DEFAULT;
     gEeprom.MrChannel[0]       = IS_MR_CHANNEL(Data[1])    ? Data[1] : MR_CHANNEL_FIRST;
     gEeprom.MrChannel[1]       = IS_MR_CHANNEL(Data[4])    ? Data[4] : MR_CHANNEL_FIRST;
-    gEeprom.FreqChannel[0]     = IS_FREQ_CHANNEL(Data[2])  ? Data[2] : (FREQ_CHANNEL_FIRST + BAND6_400MHz);
-    gEeprom.FreqChannel[1]     = IS_FREQ_CHANNEL(Data[5])  ? Data[5] : (FREQ_CHANNEL_FIRST + BAND6_400MHz);
+    gEeprom.FreqChannel[0]     = IS_FREQ_CHANNEL(Data[2])  ? Data[2] : FREQ_CHANNEL_DEFAULT;
+    gEeprom.FreqChannel[1]     = IS_FREQ_CHANNEL(Data[5])  ? Data[5] : FREQ_CHANNEL_DEFAULT;
+vfo_indices_done:
+#ifdef ENABLE_FEAT_SERVICE_MODES
+    SERVICE_Init();
+#endif
 #ifdef ENABLE_NOAA
     gEeprom.NoaaChannel[0] = IS_NOAA_CHANNEL(Data[6])  ? Data[6] : NOAA_CHANNEL_FIRST;
     gEeprom.NoaaChannel[1] = IS_NOAA_CHANNEL(Data[7])  ? Data[7] : NOAA_CHANNEL_FIRST;
@@ -126,19 +146,42 @@ void SETTINGS_InitEEPROM(void)
         gEeprom.FM_IsMrMode        = fmCfg.isMrMode;
     }
 
-    // 0E40..0E67
+#ifdef ENABLE_FMRADIO_SCREEN
+    // 0E40..0E67 (service modes: FM memories are WFM memories)
     EEPROM_ReadBuffer(0x0E40, gFM_Channels, sizeof(gFM_Channels));
     FM_ConfigureChannelState();
+#else
+    gEeprom.FM_FrequencyPlaying = gEeprom.FM_SelectedFrequency;
+#endif
 #endif
 
     // 0E90..0E97
     EEPROM_ReadBuffer(0x0E90, Data, 8);
+#ifdef ENABLE_FEAT_SERVICE_MODES
+    gEeprom.BEEP_CONTROL                 = Data[0] != 0xFF && (Data[0] & 1);   // (off unless set: CHIRP)
+#else
     gEeprom.BEEP_CONTROL                 = Data[0] & 1;
+#endif
     gEeprom.KEY_M_LONG_PRESS_ACTION      = ((Data[0] >> 1) < ACTION_OPT_LEN) ? (Data[0] >> 1) : ACTION_OPT_NONE;
     gEeprom.KEY_1_SHORT_PRESS_ACTION     = (Data[1] < ACTION_OPT_LEN) ? Data[1] : ACTION_OPT_MONITOR;
     gEeprom.KEY_1_LONG_PRESS_ACTION      = (Data[2] < ACTION_OPT_LEN) ? Data[2] : ACTION_OPT_NONE;
     gEeprom.KEY_2_SHORT_PRESS_ACTION     = (Data[3] < ACTION_OPT_LEN) ? Data[3] : ACTION_OPT_SCAN;
     gEeprom.KEY_2_LONG_PRESS_ACTION      = (Data[4] < ACTION_OPT_LEN) ? Data[4] : ACTION_OPT_NONE;
+#ifdef ENABLE_FEAT_SERVICE_MODES
+    {
+        const uint8_t take = SERVICE_TakeKeyDefaultsOnce();
+        if (take & 1u) {   // side 1: squelch + / monitor, side 2: squelch - / light
+            gEeprom.KEY_1_SHORT_PRESS_ACTION = ACTION_OPT_SQUELCH_UP;
+            gEeprom.KEY_1_LONG_PRESS_ACTION  = ACTION_OPT_MONITOR;
+            gEeprom.KEY_2_SHORT_PRESS_ACTION = ACTION_OPT_SQUELCH_DOWN;
+            gEeprom.KEY_2_LONG_PRESS_ACTION  = ACTION_OPT_FLASHLIGHT;
+        }
+        if (take & 2u)     // long-press MENU: the system info
+            gEeprom.KEY_M_LONG_PRESS_ACTION  = ACTION_OPT_SYSINFO;
+        if (take)
+            gRequestSaveSettings = true;
+    }
+#endif
     gEeprom.SCAN_RESUME_MODE             = (Data[5] < 105)            ? Data[5] : 14;
     gEeprom.AUTO_KEYPAD_LOCK             = (Data[6] < 41)             ? Data[6] : 0;
 #ifdef ENABLE_FEAT_F4HWN
@@ -177,6 +220,9 @@ void SETTINGS_InitEEPROM(void)
     gEeprom.ROGER                          = (Data[1] <  3) ? Data[1] : ROGER_MODE_OFF;
     gEeprom.REPEATER_TAIL_TONE_ELIMINATION = (Data[2] < 11) ? Data[2] : 0;
     gEeprom.TX_VFO                         = (Data[3] <  2) ? Data[3] : 0;
+#ifdef ENABLE_FEAT_SERVICE_MODES
+    SERVICE_WatchBoot();   // the A / B view decides the watch, not the saved dual watch
+#endif
     gEeprom.BATTERY_TYPE                   = (Data[4] < BATTERY_TYPE_UNKNOWN) ? Data[4] : BATTERY_TYPE_1600_MAH;
 
     // 0ED0..0ED7
@@ -289,7 +335,9 @@ void SETTINGS_InitEEPROM(void)
     gSetting_200TX             = (Data[3] < 2) ? Data[3] : false;
     gSetting_500TX             = (Data[4] < 2) ? Data[4] : false;
 #endif
+#ifndef ENABLE_FEAT_SERVICE_MODES   // (VFO slots are switched on / off instead)
     gSetting_350EN             = (Data[5] < 2) ? Data[5] : true;
+#endif
 #ifdef ENABLE_FEAT_F4HWN
     gSetting_ScrambleEnable    = false;
 #else
@@ -370,7 +418,9 @@ void SETTINGS_InitEEPROM(void)
 #endif
         gSetting_set_lck = (tmp >> 1) & 0x01;
         gSetting_set_met = (tmp >> 2) & 0x01;
+#ifndef ENABLE_FEAT_SERVICE_MODES
         gSetting_set_gui = (tmp >> 3) & 0x01;
+#endif
 
 #ifdef ENABLE_FEAT_F4HWN_CTR
         int ctr_value = Data[5] & 0x0F;
@@ -524,7 +574,7 @@ void SETTINGS_FactoryReset(bool bIsAll)
 
     if (bIsAll)
     {
-        RADIO_InitInfo(gRxVfo, FREQ_CHANNEL_FIRST + BAND6_400MHz, 43350000);
+        RADIO_InitInfo(gRxVfo, FREQ_CHANNEL_DEFAULT, 43350000);
 
         #ifdef ENABLE_FEAT_F4HWN_RESET_CHANNEL
             // set the first few memory channels
@@ -545,6 +595,14 @@ void SETTINGS_FactoryReset(bool bIsAll)
 }
 
 #ifdef ENABLE_FMRADIO
+#ifdef ENABLE_FEAT_SERVICE_MODES
+// A VFO slot's 16 bytes: the stock 7 band slots, the 8th where the stock FM presets were.
+uint16_t SETTINGS_VfoSlotAddr(uint8_t slot, uint8_t vfo)
+{
+    return (uint16_t)((slot < 7u ? 0x0C80u + slot * 32u : 0x0E40u) + vfo * 16u);
+}
+#endif
+
 void SETTINGS_SaveFM(void)
     {
         union {
@@ -566,31 +624,27 @@ void SETTINGS_SaveFM(void)
         //fmCfg.space    = gEeprom.FM_Space;
         EEPROM_WriteBuffer(0x0E88, fmCfg.__raw);
 
+#ifdef ENABLE_FMRADIO_SCREEN
         for (unsigned i = 0; i < 5; i++)
             EEPROM_WriteBuffer(0x0E40 + (i * 8), &gFM_Channels[i * 4]);
+#endif
     }
 #endif
 
 void SETTINGS_SaveVfoIndices(void)
 {
-    uint8_t State[8];
+    const uint16_t Idx[8] = {
+        gEeprom.ScreenChannel[0], gEeprom.MrChannel[0], gEeprom.FreqChannel[0],
+        gEeprom.ScreenChannel[1], gEeprom.MrChannel[1], gEeprom.FreqChannel[1],
+        0xFFFF, 0xFFFF,
+    };
 
-    #ifndef ENABLE_NOAA
-        EEPROM_ReadBuffer(0x0E80, State, sizeof(State));
-    #endif
+    EEPROM_WriteBuffer(EEPROM_VFO_INDICES,     &Idx[0]);   // 8 bytes per write
+    EEPROM_WriteBuffer(EEPROM_VFO_INDICES + 8, &Idx[4]);
 
-    State[0] = gEeprom.ScreenChannel[0];
-    State[1] = gEeprom.MrChannel[0];
-    State[2] = gEeprom.FreqChannel[0];
-    State[3] = gEeprom.ScreenChannel[1];
-    State[4] = gEeprom.MrChannel[1];
-    State[5] = gEeprom.FreqChannel[1];
-    #ifdef ENABLE_NOAA
-        State[6] = gEeprom.NoaaChannel[0];
-        State[7] = gEeprom.NoaaChannel[1];
-    #endif
-
-    EEPROM_WriteBuffer(0x0E80, State);
+#ifdef ENABLE_FEAT_SERVICE_MODES
+    SERVICE_SaveState();
+#endif
 }
 
 void SETTINGS_SaveSettings(void)
@@ -827,18 +881,29 @@ void SETTINGS_SaveSettings(void)
 #endif
 }
 
-void SETTINGS_SaveChannel(uint8_t Channel, uint8_t VFO, const VFO_Info_t *pVFO, uint8_t Mode)
+void SETTINGS_SaveChannel(uint16_t Channel, uint8_t VFO, const VFO_Info_t *pVFO, uint8_t Mode)
 {
 #ifdef ENABLE_NOAA
     if (IS_NOAA_CHANNEL(Channel))
         return;
 #endif
 
+#ifdef ENABLE_FEAT_SERVICE_MODES
+    if (IS_SVC_CHANNEL(Channel)) {   // built-in plan: only power and GMRS tones are user state
+        SERVICE_SaveChannelTones(Channel, pVFO);
+        return;
+    }
+#endif
+
     uint16_t OffsetVFO = Channel * 16;
 
     if (IS_FREQ_CHANNEL(Channel)) { // it's a VFO, not a channel
+#ifdef ENABLE_FEAT_SERVICE_MODES
+        OffsetVFO  = SETTINGS_VfoSlotAddr(Channel - FREQ_CHANNEL_FIRST, VFO);
+#else
         OffsetVFO  = (VFO == 0) ? 0x0C80 : 0x0C90;
         OffsetVFO += (Channel - FREQ_CHANNEL_FIRST) * 32;
+#endif
     }
 
     if (Mode >= 2 || IS_FREQ_CHANNEL(Channel)) { // copy VFO to a channel
@@ -856,6 +921,7 @@ void SETTINGS_SaveChannel(uint8_t Channel, uint8_t VFO, const VFO_Info_t *pVFO, 
         State._8[2] = (pVFO->freq_config_TX.CodeType << 4) | pVFO->freq_config_RX.CodeType;
         State._8[3] = (pVFO->Modulation << 4) | pVFO->TX_OFFSET_FREQUENCY_DIRECTION;
         State._8[4] = 0
+            | (pVFO->TX_OFF  << 7)
             | (pVFO->TX_LOCK << 6)
             | (pVFO->BUSY_CHANNEL_LOCK << 5)
             | (pVFO->OUTPUT_POWER      << 2)
@@ -867,7 +933,9 @@ void SETTINGS_SaveChannel(uint8_t Channel, uint8_t VFO, const VFO_Info_t *pVFO, 
 #endif
         ;
         State._8[6] =  pVFO->STEP_SETTING;
-#ifdef ENABLE_FEAT_F4HWN
+#if defined(ENABLE_FEAT_SERVICE_MODES)
+        State._8[7] =  pVFO->SvcFlags;   // (N+, Call)
+#elif defined(ENABLE_FEAT_F4HWN)
         State._8[7] =  0;
 #else
         State._8[7] =  pVFO->SCRAMBLING_TYPE;
@@ -900,7 +968,7 @@ void SETTINGS_SaveBatteryCalibration(const uint16_t * batteryCalibration)
     EEPROM_WriteBuffer(0x1F48, buf);
 }
 
-void SETTINGS_SaveChannelName(uint8_t channel, const char * name)
+void SETTINGS_SaveChannelName(uint16_t channel, const char * name)
 {
     uint16_t offset = channel * 16;
     uint8_t buf[16] = {0};
@@ -909,8 +977,11 @@ void SETTINGS_SaveChannelName(uint8_t channel, const char * name)
     EEPROM_WriteBuffer(0x0F58 + offset, buf + 8);
 }
 
-void SETTINGS_UpdateChannel(uint8_t channel, const VFO_Info_t *pVFO, bool keep, bool check, bool save)
+void SETTINGS_UpdateChannel(uint16_t channel, const VFO_Info_t *pVFO, bool keep, bool check, bool save)
 {
+    if (IS_SVC_CHANNEL(channel))
+        return;
+
 #ifdef ENABLE_NOAA
     if (!IS_NOAA_CHANNEL(channel))
 #endif

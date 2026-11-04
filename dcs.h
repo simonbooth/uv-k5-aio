@@ -36,6 +36,7 @@ enum {
 
 extern const uint16_t CTCSS_Options[50];
 extern const uint16_t DCS_Options[104];
+#define DCS_OPTION_COUNT 104u
 
 uint32_t DCS_GetGolayCodeWord(DCS_CodeType_t CodeType, uint8_t Option);
 uint8_t DCS_GetCdcssCode(uint32_t Code);

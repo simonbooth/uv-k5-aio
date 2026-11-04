@@ -17,6 +17,8 @@
 #ifndef UI_MAIN_H
 #define UI_MAIN_H
 
+#include <stdint.h>
+
 enum center_line_t {
     CENTER_LINE_NONE = 0,
     CENTER_LINE_IN_USE,
@@ -40,6 +42,19 @@ extern const int8_t dBmCorrTable[7];
 
 void UI_DisplayAudioBar(void);
 void UI_MAIN_TimeSlice500ms(void);
+#ifdef ENABLE_FEAT_SERVICE_MODES
+void UI_MAIN_ShowSquelch(void);   // show "SQL n" briefly (side-key squelch)
+bool UI_FullView(void);           // single (full screen) view: picked (F+2), or transmitting
+extern uint8_t gRssiBars;         // receiving VFO's signal, 0-6 bars
+void UI_DrawSignalBars(uint8_t *p, uint8_t level);   // 17 x 7
+void UI_DrawModeIcon(uint8_t *p, uint8_t vfo);       // 7 x 7
+struct VFO_Info_t;
+void UI_PowerShort(const struct VFO_Info_t *v, char *out);   // "5W" .. "20mW", "OFF" (out[5])
+bool UI_PowerSelected(unsigned int vfo);                      // the F editor's power, on this VFO
+uint8_t UI_MemNo(unsigned int vfo, char *n);    // the memory number text (n[8]): its inverted width
+void UI_SqlText(unsigned int vfo, char *s);     // "S0".."S9", "MO" (s[4])
+bool UI_SqlSelected(unsigned int vfo);
+#endif
 void UI_DisplayMain(void);
 
 #ifdef ENABLE_AGC_SHOW_DATA

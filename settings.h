@@ -127,6 +127,11 @@ enum ACTION_OPT_t {
     ACTION_OPT_REGA_ALARM,
     ACTION_OPT_REGA_TEST,
 #endif
+#ifdef ENABLE_FEAT_SERVICE_MODES
+    ACTION_OPT_SQUELCH_UP,
+    ACTION_OPT_SQUELCH_DOWN,
+    ACTION_OPT_SYSINFO,   // the SysInf page (battery, firmware)
+#endif
     ACTION_OPT_LEN
 };
 
@@ -162,9 +167,9 @@ enum CHANNEL_DisplayMode_t {
 typedef enum CHANNEL_DisplayMode_t CHANNEL_DisplayMode_t;
 
 typedef struct {
-    uint8_t               ScreenChannel[2]; // current channels set in the radio (memory or frequency channels)
-    uint8_t               FreqChannel[2]; // last frequency channels used
-    uint8_t               MrChannel[2]; // last memory channels used
+    uint16_t              ScreenChannel[2]; // current channels set in the radio (memory, frequency or service channels)
+    uint16_t              FreqChannel[2]; // last frequency channels used
+    uint16_t              MrChannel[2]; // last memory channels used
 #ifdef ENABLE_NOAA
     uint8_t           NoaaChannel[2];
 #endif
@@ -314,12 +319,22 @@ void     SETTINGS_FactoryReset(bool bIsAll);
 #ifdef ENABLE_FMRADIO
     void SETTINGS_SaveFM(void);
 #endif
+#ifdef ENABLE_FEAT_SERVICE_MODES
+    uint16_t SETTINGS_VfoSlotAddr(uint8_t slot, uint8_t vfo);
+#endif
 void SETTINGS_SaveVfoIndices(void);
 void SETTINGS_SaveSettings(void);
-void SETTINGS_SaveChannelName(uint8_t channel, const char * name);
-void SETTINGS_SaveChannel(uint8_t Channel, uint8_t VFO, const VFO_Info_t *pVFO, uint8_t Mode);
+// Our own EEPROM area: above everything CHIRP uploads (0x0000-0x1CFF), below
+// calibration (0x1E00). Ham memory channels / names / attributes stay where
+// CHIRP expects them.
+#define EEPROM_VFO_INDICES   0x1D00u   // 16 bytes: Screen/Mr/Freq channel x 2, uint16
+#define EEPROM_SERVICE_STATE 0x1D10u   // service modes (see service.c)
+#define EEPROM_OWN_END       0x1E00u
+
+void SETTINGS_SaveChannelName(uint16_t channel, const char * name);
+void SETTINGS_SaveChannel(uint16_t Channel, uint8_t VFO, const VFO_Info_t *pVFO, uint8_t Mode);
 void SETTINGS_SaveBatteryCalibration(const uint16_t * batteryCalibration);
-void SETTINGS_UpdateChannel(uint8_t channel, const VFO_Info_t *pVFO, bool keep, bool check, bool save);
+void SETTINGS_UpdateChannel(uint16_t channel, const VFO_Info_t *pVFO, bool keep, bool check, bool save);
 void SETTINGS_WriteBuildOptions(void);
 #ifdef ENABLE_FEAT_F4HWN_RESUME_STATE
     void SETTINGS_WriteCurrentState(void);

@@ -36,6 +36,9 @@ static const uint16_t BK1080_RegisterTable[] =
 
 static bool gIsInitBK1080;
 
+uint8_t gBK1080Volume = 15;
+bool    gBK1080Mono;
+
 uint16_t BK1080_BaseFrequency;
 uint16_t BK1080_FrequencyDeviation;
 
@@ -64,14 +67,12 @@ void BK1080_Init(uint16_t freq, uint8_t band/*, uint8_t space*/)
 
             gIsInitBK1080 = true;
         }
-        else {
-            BK1080_WriteRegister(BK1080_REG_02_POWER_CONFIGURATION, 0x0201);
-        }
+        BK1080_Mute(false);   // (with mono, if set)
 
         #ifdef ENABLE_FEAT_F4HWN
-            BK1080_WriteRegister(BK1080_REG_05_SYSTEM_CONFIGURATION2, gMute ? 0x0A10 : 0x0A1F);
+            BK1080_WriteRegister(BK1080_REG_05_SYSTEM_CONFIGURATION2, gMute ? 0x0A10 : 0x0A10 | gBK1080Volume);
         #else
-            BK1080_WriteRegister(BK1080_REG_05_SYSTEM_CONFIGURATION2, 0x0A1F);
+            BK1080_WriteRegister(BK1080_REG_05_SYSTEM_CONFIGURATION2, 0x0A10 | gBK1080Volume);
         #endif
         BK1080_SetFrequency(freq, band/*, space*/);
     }
@@ -106,7 +107,7 @@ void BK1080_WriteRegister(BK1080_Register_t Register, uint16_t Value)
 
 void BK1080_Mute(bool Mute)
 {
-    BK1080_WriteRegister(BK1080_REG_02_POWER_CONFIGURATION, Mute ? 0x4201 : 0x0201);
+    BK1080_WriteRegister(BK1080_REG_02_POWER_CONFIGURATION, (Mute ? 0x4201 : 0x0201) | (gBK1080Mono ? 0x2000 : 0));
 }
 
 void BK1080_SetFrequency(uint16_t frequency, uint8_t band/*, uint8_t space*/)

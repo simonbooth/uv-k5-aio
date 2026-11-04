@@ -103,8 +103,8 @@ void UI_PrintStringSmall(const char *pString, uint8_t Start, uint8_t End, uint8_
     const size_t Length = strlen(pString);
     const unsigned int char_spacing = char_width + 1;
 
-    if (End > Start) {
-        Start += (((End - Start) - Length * char_spacing) + 1) / 2;
+    if (End > Start && Length * char_spacing < (unsigned)(End - Start)) {   // (wider: from Start, not
+        Start += (((End - Start) - Length * char_spacing) + 1) / 2;          // a wrapped-round offset)
     }
 
     UI_PrintStringBuffer(pString, gFrameBuffer[Line] + Start, char_width, font);

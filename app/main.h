@@ -22,5 +22,8 @@
 void MAIN_ProcessKeys(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld);
 void channelMoveSwitch(void);
 
+#ifdef ENABLE_FEAT_SERVICE_MODES
+#endif
+
 #endif
 

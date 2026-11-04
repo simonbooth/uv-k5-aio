@@ -39,14 +39,17 @@
 #include "driver/backlight.h"
 #include "functions.h"
 #include "misc.h"
+#include "service.h"
 #include "settings.h"
 #include "ui/inputbox.h"
+#include "ui/main.h"
+#include "ui/menu.h"
 #include "ui/ui.h"
 #ifdef ENABLE_REGA
     #include "app/rega.h"
 #endif
 
-#if defined(ENABLE_FMRADIO)
+#if defined(ENABLE_FMRADIO_SCREEN)
 static void ACTION_Scan_FM(bool bRestart);
 #endif
 
@@ -58,7 +61,38 @@ inline static void ACTION_1750() { ACTION_AlarmOr1750(true); };
 
 inline static void ACTION_ScanRestart() { ACTION_Scan(true); };
 
+#ifdef ENABLE_FEAT_SERVICE_MODES
+// Side-key squelch: one step per press, shown briefly on screen, saved.
+static void ACTION_SquelchStep(int8_t direction)   // the active VFO only
+{   // monitoring counts as 0 (open): up ends it at 1 on the VFO monitored, down does nothing
+    uint8_t vfo = gEeprom.TX_VFO;
+    if (gCurrentFunction == FUNCTION_MONITOR) {
+        if (direction < 0)
+            return;
+        gMonitor  = false;   // (the step's reconfigure ends it: back to the foreground)
+        vfo       = gEeprom.RX_VFO;
+        direction = (int8_t)(1 - SERVICE_GetSquelch(vfo));
+    }
+    SERVICE_StepSquelch(vfo, direction);
+    UI_MAIN_ShowSquelch();
+}
+
+// The SysInf screen (battery voltage / percent, firmware).
+static void ACTION_SysInfo(void)
+{
+    gRequestDisplayScreen = DISPLAY_SYSINFO;
+}
+
+static void ACTION_SquelchUp(void)   { ACTION_SquelchStep(1); }
+static void ACTION_SquelchDown(void) { ACTION_SquelchStep(-1); }
+#endif
+
 void (*action_opt_table[])(void) = {
+#ifdef ENABLE_FEAT_SERVICE_MODES
+    [ACTION_OPT_SQUELCH_UP]   = &ACTION_SquelchUp,
+    [ACTION_OPT_SQUELCH_DOWN] = &ACTION_SquelchDown,
+    [ACTION_OPT_SYSINFO]      = &ACTION_SysInfo,
+#endif
     [ACTION_OPT_NONE] = &FUNCTION_NOP,
     [ACTION_OPT_POWER] = &ACTION_Power,
     [ACTION_OPT_MONITOR] = &ACTION_Monitor,
@@ -104,10 +138,20 @@ void (*action_opt_table[])(void) = {
     [ACTION_OPT_BLMIN_TMP_OFF] = &FUNCTION_NOP,
 #endif
 
+#if defined(ENABLE_FEAT_F4HWN) && defined(ENABLE_FEAT_SERVICE_MODES)
+    [ACTION_OPT_RXMODE] = &FUNCTION_NOP,   // the A / B view and its watch replaced these
+    [ACTION_OPT_MAINONLY] = &FUNCTION_NOP,
+#endif
 #ifdef ENABLE_FEAT_F4HWN
+#ifndef ENABLE_FEAT_SERVICE_MODES
     [ACTION_OPT_RXMODE] = &ACTION_RxMode,
     [ACTION_OPT_MAINONLY] = &ACTION_MainOnly,
+#endif
+#ifdef ENABLE_FEAT_SERVICE_MODES   // one PTT mode (F + PTT latches): nothing to toggle
+    [ACTION_OPT_PTT] = &FUNCTION_NOP,
+#else
     [ACTION_OPT_PTT] = &ACTION_Ptt,
+#endif
     [ACTION_OPT_WN] = &ACTION_Wn,
     [ACTION_OPT_BACKLIGHT] = &ACTION_BackLight,
     #if !defined(ENABLE_SPECTRUM) || !defined(ENABLE_FMRADIO)
@@ -132,6 +176,11 @@ static_assert(ARRAY_SIZE(action_opt_table) == ACTION_OPT_LEN);
 
 void ACTION_Power(void)
 {
+#ifdef ENABLE_FEAT_SERVICE_MODES
+    if (IS_SVC_CHANNEL(gTxVfo->CHANNEL_SAVE))   // plan limits; on GMRS this also picks FRS / GMRS
+        gTxVfo->OUTPUT_POWER = SERVICE_NextPower(gTxVfo->CHANNEL_SAVE, gTxVfo->OUTPUT_POWER);
+    else
+#endif
     if (++gTxVfo->OUTPUT_POWER > OUTPUT_POWER_HIGH)
         gTxVfo->OUTPUT_POWER = OUTPUT_POWER_LOW1;
 
@@ -175,7 +224,7 @@ void ACTION_Monitor(void)
 
     RADIO_SetupRegisters(true);
 
-#ifdef ENABLE_FMRADIO
+#ifdef ENABLE_FMRADIO_SCREEN
     if (gFmRadioMode) {
         FM_Start();
         gRequestDisplayScreen = DISPLAY_FM;
@@ -189,7 +238,14 @@ void ACTION_Scan(bool bRestart)
 {
     (void)bRestart;
 
-#ifdef ENABLE_FMRADIO
+#if defined(ENABLE_FEAT_SERVICE_MODES) && defined(ENABLE_FMRADIO)
+    if (gTxVfo->Modulation == MODULATION_BFM) {   // broadcast FM: seek the next station
+        FM_Seek();
+        return;
+    }
+#endif
+
+#ifdef ENABLE_FMRADIO_SCREEN
     if (gFmRadioMode) {
         ACTION_Scan_FM(bRestart);
         return;
@@ -222,7 +278,11 @@ void ACTION_Scan(bool bRestart)
     if (gScanStateDir != SCAN_OFF) {
         // already scanning
 
+#ifdef ENABLE_FEAT_SERVICE_MODES   // the scan covers the VFO's group: no list cycling
+        {
+#else
         if (!IS_MR_CHANNEL(gNextMrChannel)) {
+#endif
             CHFRSCANNER_Stop();
 #ifdef ENABLE_VOICE
             gAnotherVoiceID = VOICE_ID_SCANNING_STOP;
@@ -351,11 +411,23 @@ void ACTION_Handle(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
 
     // held or released after short press beyond this point
 
-    action_opt_table[funcShort]();
+    if (action_opt_table[funcShort])   // (an action not in this build - a key mapped by another firmware: none)
+        action_opt_table[funcShort]();
 }
 
 
-#ifdef ENABLE_FMRADIO
+#if defined(ENABLE_FMRADIO) && !defined(ENABLE_FMRADIO_SCREEN)
+void ACTION_FM(void)   // the selected VFO to broadcast FM and back
+{
+    if (gCurrentFunction != FUNCTION_TRANSMIT && gScanStateDir == SCAN_OFF) {
+        gInputBoxIndex        = 0;
+        gRequestDisplayScreen = DISPLAY_MAIN;
+        COMMON_ToggleFm();
+    }
+}
+#endif
+
+#ifdef ENABLE_FMRADIO_SCREEN
 void ACTION_FM(void)
 {
     if (gCurrentFunction != FUNCTION_TRANSMIT && gCurrentFunction != FUNCTION_MONITOR)
@@ -493,6 +565,7 @@ void ACTION_Update(void)
     gUpdateStatus        = true;
 }
 
+#ifndef ENABLE_FEAT_SERVICE_MODES   // the A / B view and its watch replaced RxMode
 void ACTION_RxMode(void)
 {
     static bool cycle = 0;
@@ -535,11 +608,14 @@ void ACTION_MainOnly(void)
 
     ACTION_Update();
 }
+#endif
 
+#ifndef ENABLE_FEAT_SERVICE_MODES
 void ACTION_Ptt(void)
 {
     gSetting_set_ptt_session = !gSetting_set_ptt_session;
 }
+#endif
 
 void ACTION_Wn(void)
 {
@@ -548,7 +624,7 @@ void ACTION_Wn(void)
         if (FUNCTION_IsRx())
         {
             gRxVfo->CHANNEL_BANDWIDTH = (gRxVfo->CHANNEL_BANDWIDTH == 0) ? 1: 0;
-            if(gRxVfo->CHANNEL_BANDWIDTH == BANDWIDTH_NARROW && gSetting_set_nfm == 1)
+            if(gRxVfo->CHANNEL_BANDWIDTH == BANDWIDTH_NARROW && NARROWER_ON(gRxVfo))
             {
                 narrower = 1;
             }
@@ -562,7 +638,7 @@ void ACTION_Wn(void)
         else
         {
             gTxVfo->CHANNEL_BANDWIDTH = (gTxVfo->CHANNEL_BANDWIDTH == 0) ? 1: 0;
-            if(gTxVfo->CHANNEL_BANDWIDTH == BANDWIDTH_NARROW && gSetting_set_nfm == 1)
+            if(gTxVfo->CHANNEL_BANDWIDTH == BANDWIDTH_NARROW && NARROWER_ON(gTxVfo))
             {
                 narrower = 1;
             }

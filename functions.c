@@ -36,6 +36,7 @@
 #include "helper/battery.h"
 #include "misc.h"
 #include "radio.h"
+#include "service.h"
 #include "settings.h"
 #include "ui/status.h"
 #include "ui/ui.h"
@@ -66,6 +67,10 @@ void FUNCTION_Init(void)
     gEndOfRxDetectedMaybe              = false;
 
     gCurrentCodeType = (gRxVfo->Modulation != MODULATION_FM) ? CODE_TYPE_OFF : gRxVfo->pRX->CodeType;
+#ifdef ENABLE_FEAT_SERVICE_MODES
+    if (SERVICE_WxAlertGate(gRxVfo))
+        gCurrentCodeType = CODE_TYPE_CONTINUOUS_TONE;   // weather watch: gated on the 1050 Hz alarm
+#endif
 
 #ifdef ENABLE_VOX
     g_VOX_Lost     = false;

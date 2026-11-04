@@ -4,6 +4,15 @@
 
 #include <stdint.h>
 
+#ifdef ENABLE_FEAT_SERVICE_MODES
+extern const uint8_t BITMAP_ModeHam[7];
+extern const uint8_t BITMAP_ModeGmrs[7];
+extern const uint8_t BITMAP_ModeMarine[7];
+extern const uint8_t BITMAP_ModeAir[7];
+extern const uint8_t BITMAP_ModeFm[7];
+extern const uint8_t BITMAP_NoTx[13];
+extern const uint8_t * const BITMAP_ModeIcons[5];   // indexed by SERVICE_ModeOf()
+#endif
 extern const uint8_t gFontPowerSave[2][6];
 extern const uint8_t gFontPttOnePush[2][6];
 extern const uint8_t gFontPttClassic[2][6];

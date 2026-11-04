@@ -18,6 +18,10 @@
 #define UI_STATUS_H
 
 void UI_DisplayStatus();
+#ifdef ENABLE_FEAT_SERVICE_MODES
+#include <stdint.h>
+uint8_t UI_StatusBattery(uint8_t *line);   // the battery (icon / voltage / %) at the right: its x
+#endif
 
 #endif
 

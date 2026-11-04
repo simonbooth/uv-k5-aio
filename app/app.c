@@ -26,6 +26,8 @@
 #endif
 #include "app/app.h"
 #include "app/chFrScanner.h"
+#include "app/common.h"
+#include "service.h"
 #include "app/dtmf.h"
 #ifdef ENABLE_FLASHLIGHT
     #include "app/flashlight.h"
@@ -34,6 +36,9 @@
     #include "app/fm.h"
 #endif
 #include "app/generic.h"
+#ifdef ENABLE_FEAT_SERVICE_MODES
+    #include "app/sysinfo.h"
+#endif
 #include "app/main.h"
 #include "app/menu.h"
 #include "app/scanner.h"
@@ -82,6 +87,9 @@
 static bool flagSaveVfo;
 static bool flagSaveSettings;
 static bool flagSaveChannel;
+#ifdef ENABLE_FEAT_SERVICE_MODES
+static uint8_t sPttHeld;   // the PTT press held now: 10 ms ticks (to 100); 0xFF: it ended a latch
+#endif
 
 static void ProcessKey(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld);
 
@@ -89,14 +97,24 @@ static void ProcessKey(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld);
 void (*ProcessKeysFunctions[])(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld) = {
     [DISPLAY_MAIN] = &MAIN_ProcessKeys,
     [DISPLAY_MENU] = &MENU_ProcessKeys,
+#ifdef ENABLE_FEAT_FINDER
     [DISPLAY_SCANNER] = &SCANNER_ProcessKeys,
+#else
+    [DISPLAY_SCANNER] = &MAIN_ProcessKeys,   // never shown; keeps the table whole
+#endif
 
-#ifdef ENABLE_FMRADIO
+#ifdef ENABLE_FMRADIO_SCREEN
     [DISPLAY_FM] = &FM_ProcessKeys,
 #endif
 
 #ifdef ENABLE_AIRCOPY
     [DISPLAY_AIRCOPY] = &AIRCOPY_ProcessKeys,
+#endif
+
+#ifdef ENABLE_FEAT_SERVICE_MODES
+    [DISPLAY_SYSINFO] = &SYSINFO_ProcessKeys,
+    [DISPLAY_RESET]   = &RESET_ProcessKeys,
+    [DISPLAY_CONFIRM] = &CONFIRM_ProcessKeys,
 #endif
 };
 
@@ -305,7 +323,7 @@ static void HandleReceive(void)
             switch (gCurrentCodeType)
             {
                 case CODE_TYPE_OFF:
-                    if (gEeprom.SQUELCH_LEVEL)
+                    if (SQUELCH_OF(gEeprom.RX_VFO))
                     {
                         if (g_CxCSS_TAIL_Found)
                         {
@@ -497,6 +515,10 @@ static void HandleFunction(void)
     HandleFunction_fn_table[gCurrentFunction]();
 }
 
+#ifdef ENABLE_FEAT_SERVICE_MODES
+static uint8_t gServiceLedFlips;   // flashlight LED toggles left: 6 = three flashes
+#endif
+
 void APP_StartListening(FUNCTION_Type_t function)
 {
     const unsigned int vfo = gEeprom.RX_VFO;
@@ -518,6 +540,11 @@ void APP_StartListening(FUNCTION_Type_t function)
     // clear the other vfo's rssi level (to hide the antenna symbol)
     gVFO_RSSI_bar_level[!vfo] = 0;
 
+#ifdef ENABLE_FEAT_SERVICE_MODES
+    if (SERVICE_OnRxStart(gRxVfo) && gServiceLedFlips == 0)   // ch 16 activity / weather alarm
+        gServiceLedFlips = 6;
+#endif
+
     AUDIO_AudioPathOn();
     gEnableSpeaker = true;
 
@@ -525,7 +552,11 @@ void APP_StartListening(FUNCTION_Type_t function)
         BACKLIGHT_TurnOn();
     }
 
-    if (gScanStateDir != SCAN_OFF)
+    if (gScanStateDir != SCAN_OFF
+#ifdef ENABLE_FEAT_SERVICE_MODES
+        && !SERVICE_ScanLookHeard()   // heard on the watched VFO: not a scan hit
+#endif
+    )
         CHFRSCANNER_Found();
 
 #ifdef ENABLE_NOAA
@@ -550,6 +581,9 @@ void APP_StartListening(FUNCTION_Type_t function)
         // when crossband is active only the main VFO should be used for TX
         if(gEeprom.CROSS_BAND_RX_TX == CROSS_BAND_OFF)
             gRxVfoIsActive = true;
+#ifdef ENABLE_FEAT_SERVICE_MODES
+        SERVICE_WatchOnRx();   // the watched VFO heard: PTT (the solid border) follows it
+#endif
 
         // let the user see DW is not active
         gDualWatchActive = false;
@@ -632,8 +666,10 @@ static void DualwatchAlternate(void)
         else
     #endif
     {   // toggle between VFO's
+#ifndef ENABLE_FEAT_SERVICE_MODES   // (SERVICE_WatchNext_10ms below)
         gEeprom.RX_VFO = !gEeprom.RX_VFO;
         gRxVfo         = &gEeprom.VfoInfo[gEeprom.RX_VFO];
+#endif
 
         if (!gDualWatchActive)
         {   // let the user see DW is active
@@ -642,10 +678,14 @@ static void DualwatchAlternate(void)
         }
     }
 
+    #ifdef ENABLE_FEAT_SERVICE_MODES
+        gDualWatchCountdown_10ms = SERVICE_WatchNext_10ms();   // the other VFO; PRIORITY: long at home, short away
+    #endif
     RADIO_SetupRegisters(false);
 
     #ifdef ENABLE_NOAA
         gDualWatchCountdown_10ms = gIsNoaaMode ? dual_watch_count_noaa_10ms : dual_watch_count_toggle_10ms;
+    #elif defined(ENABLE_FEAT_SERVICE_MODES)
     #else
         gDualWatchCountdown_10ms = dual_watch_count_toggle_10ms;
     #endif
@@ -706,6 +746,7 @@ static void CheckRadioInterrupts(void)
                         gDTMF_RX_live[len++]  = c;
                         gDTMF_RX_live[len]    = 0;
                         gDTMF_RX_live_timeout = DTMF_RX_live_timeout_500ms;  // time till we delete it
+                        gDTMF_RX_live_vfo     = gEeprom.RX_VFO;
                         gUpdateDisplay        = true;
                     }
 
@@ -746,6 +787,12 @@ static void CheckRadioInterrupts(void)
             g_CTCSS_Lost = false;
 
 #ifdef ENABLE_VOX
+#ifdef ENABLE_FEAT_SERVICE_MODES
+        if (interrupts.voxLost)    // (the chip's naming: voice heard)
+            g_VOX_Lost = true;
+        if (interrupts.voxFound)   // silence
+            g_VOX_Lost = false;
+#else
         if (interrupts.voxLost) {
             g_VOX_Lost         = true;
             gVoxPauseCountdown = 10;
@@ -771,6 +818,7 @@ static void CheckRadioInterrupts(void)
             g_VOX_Lost         = false;
             gVoxPauseCountdown = 0;
         }
+#endif
 #endif
 
         if (interrupts.sqlLost) {
@@ -816,6 +864,36 @@ void APP_EndTransmission(void)
 }
 
 #ifdef ENABLE_VOX
+#ifdef ENABLE_FEAT_SERVICE_MODES
+// VOX: voice keys TX up; 1 s of silence after it ends it, as a PTT release would (not
+// while PTT is held or latched). Voice heard while TX is already on (PTT) only marks
+// it heard: VOX keys up again after a silence, not as PTT is let go mid-sentence.
+static void HandleVox(void)
+{
+    if (gVoxResumeCountdown)   // a beep / voice prompt just played: not voice
+        g_VOX_Lost = false;
+    if (FUNCTION_IsRx() || gScanStateDir != SCAN_OFF   // (receiving, opening, monitor)
+#ifdef ENABLE_FMRADIO
+        || gFmRadioMode
+#endif
+        )
+        return;
+    if (g_VOX_Lost) {
+        gVoxStopCountdown_10ms = vox_stop_count_down_10ms;
+        if (!gVOX_NoiseDetected) {
+            gVOX_NoiseDetected = true;
+            if (gCurrentFunction != FUNCTION_TRANSMIT && !SerialConfigInProgress()) {
+                RADIO_PrepareTX();
+                gUpdateDisplay = true;
+            }
+        }
+    } else if (gVOX_NoiseDetected && gVoxStopCountdown_10ms == 0) {
+        gVOX_NoiseDetected = false;
+        if (gCurrentFunction == FUNCTION_TRANSMIT && !gPttIsPressed && !gPttLatched)
+            GENERIC_Key_PTT(false);
+    }
+}
+#else
 static void HandleVox(void)
 {
 #ifdef ENABLE_DTMF_CALLING
@@ -888,6 +966,7 @@ static void HandleVox(void)
     }
 }
 #endif
+#endif
 
 void APP_Update(void)
 {
@@ -958,6 +1037,12 @@ void APP_Update(void)
         gTxTimeoutReachedAlert = false;
         gTxTimeoutToneAlert = 800;
 
+#ifdef ENABLE_FEAT_SERVICE_MODES
+        if (gPttLatched) {   // latched, timed out: as a release would
+            gPttLatched = false;
+            ProcessKey(KEY_PTT, false, false);
+        }
+#else
         if (gSetting_set_ptt_session) // Improve OnePush if TOT
         {
             if(gPttOnePushCounter == 1)
@@ -977,6 +1062,7 @@ void APP_Update(void)
             ST7565_ContrastAndInv();
             #endif
         }
+#endif
 #endif
 
         APP_EndTransmission();
@@ -1006,6 +1092,9 @@ void APP_Update(void)
     if (!SCANNER_IsScanning() && gScanStateDir != SCAN_OFF && gScheduleScanListen && !gPttIsPressed)
 #endif
     {   // scanning
+#ifdef ENABLE_FEAT_SERVICE_MODES
+        if (!SERVICE_ScanLook())   // A / B view: now and then a look at the watched VFO
+#endif
         CHFRSCANNER_ContinueScanning();
     }
 
@@ -1037,6 +1126,9 @@ void APP_Update(void)
 #ifdef ENABLE_FMRADIO
         && !gFmRadioMode
 #endif
+#ifdef ENABLE_FEAT_SERVICE_MODES
+        && !SERVICE_WatchPointless()
+#endif
 #ifdef ENABLE_DTMF_CALLING
         && gDTMF_CallState == DTMF_CALL_STATE_NONE
 #endif
@@ -1053,7 +1145,7 @@ void APP_Update(void)
         gScheduleDualWatch = false;
     }
 
-#ifdef ENABLE_FMRADIO
+#ifdef ENABLE_FMRADIO_SCREEN
     if (gScheduleFM && gFM_ScanState != FM_SCAN_OFF && !FUNCTION_IsRx()) {
         // switch to FM radio mode
         FM_Play();
@@ -1174,6 +1266,15 @@ static void CheckKeys(void)
 
 // -------------------- PTT ------------------------
 #ifdef ENABLE_FEAT_F4HWN
+#ifdef ENABLE_FEAT_SERVICE_MODES
+    // PTT held: transmits until released. A tap (released within 250 ms) latches it on.
+    // A press while transmitting (latched, VOX, ..) ends it; that press then does nothing
+    // more. A typed DTMF string (sent as TX starts) never latches: TX ends on release. A latched TX ends on its own with the TX timeout (TOT, 30 s - 15 min).
+    if (gPttLatched && gCurrentFunction != FUNCTION_TRANSMIT) {   // refused, or ended some other
+        gPttLatched   = false;                                      // way (a press ends it at once)
+        gUpdateStatus = true;
+    }
+#else
     if (gSetting_set_ptt_session)
     {
         if (!GPIO_CheckBit(&GPIOC->DATA, GPIOC_PIN_PTT) && !SerialConfigInProgress() && gPttOnePushCounter == 0)
@@ -1222,6 +1323,7 @@ static void CheckKeys(void)
         //gDebug = gPttOnePushCounter;
     }
     else
+#endif
     {
         if (gPttIsPressed)
         {
@@ -1229,6 +1331,12 @@ static void CheckKeys(void)
             {   // PTT released or serial comms config in progress
                 if (++gPttDebounceCounter >= 3 || SerialConfigInProgress())     // 30ms
                 {   // stop transmitting
+#ifdef ENABLE_FEAT_SERVICE_MODES
+                    if (sPttHeld < 25u) {   // a tap: latched on
+                        gPttLatched   = true;
+                        gUpdateStatus = true;
+                    } else if (sPttHeld != 0xFFu)
+#endif
                     ProcessKey(KEY_PTT, false, false);
                     gPttIsPressed = false;
                     if (gKeyReading1 != KEY_INVALID)
@@ -1238,8 +1346,13 @@ static void CheckKeys(void)
                     #endif
                 }
             }
-            else
+            else {
                 gPttDebounceCounter = 0;
+#ifdef ENABLE_FEAT_SERVICE_MODES
+                if (sPttHeld < 100u)
+                    sPttHeld++;
+#endif
+            }
         }
         else if (!GPIO_CheckBit(&GPIOC->DATA, GPIOC_PIN_PTT) && !SerialConfigInProgress())
         {   // PTT pressed
@@ -1248,7 +1361,21 @@ static void CheckKeys(void)
                 boot_counter_10ms   = 0;
                 gPttDebounceCounter = 0;
                 gPttIsPressed       = true;
+#ifdef ENABLE_FEAT_SERVICE_MODES
+                sPttHeld            = 0;
+                if (gCurrentFunction == FUNCTION_TRANSMIT && !gRTTECountdown_10ms) {   // on: this press ends it
+                    gPttLatched   = false;
+                    gUpdateStatus = true;
+                    sPttHeld      = 0xFF;
+                    ProcessKey(KEY_PTT, false, false);
+                } else {   // sending a typed DTMF string: sent, then off on release (never latched)
+                    if (gDTMF_InputMode)   // (typing: its box fills only then)
+                        sPttHeld = 25u;
+                    ProcessKey(KEY_PTT, true, false);
+                }
+#else
                 ProcessKey(KEY_PTT, true, false);
+#endif
             }
         }
         else
@@ -1357,6 +1484,13 @@ void APP_TimeSlice10ms(void)
     gNextTimeslice = false;
     gFlashLightBlinkCounter++;
 
+#ifdef ENABLE_FEAT_SERVICE_MODES
+    if (gServiceLedFlips && (gFlashLightBlinkCounter % 25u) == 0) {   // 250 ms on / off
+        GPIO_FlipBit(&GPIOC->DATA, GPIOC_PIN_FLASHLIGHT);
+        gServiceLedFlips--;
+    }
+#endif
+
 #ifdef ENABLE_AM_FIX
     if (gRxVfo->Modulation == MODULATION_AM) {
         AM_fix_10ms(gEeprom.RX_VFO);
@@ -1420,8 +1554,10 @@ void APP_TimeSlice10ms(void)
     if (gVoxResumeCountdown > 0)
         gVoxResumeCountdown--;
 
+#ifndef ENABLE_FEAT_SERVICE_MODES
     if (gVoxPauseCountdown > 0)
         gVoxPauseCountdown--;
+#endif
 #endif
 
     if (gCurrentFunction == FUNCTION_TRANSMIT) {
@@ -1488,7 +1624,9 @@ void APP_TimeSlice10ms(void)
     if (gFmRadioMode && gFM_RestoreCountdown_10ms > 0) {
         if (--gFM_RestoreCountdown_10ms == 0) { 
             FM_Start(); // switch back to FM radio mode
+#ifdef ENABLE_FMRADIO_SCREEN
             GUI_SelectNextDisplay(DISPLAY_FM);
+#endif
         }
     }
 #endif
@@ -1531,6 +1669,15 @@ void cancelUserInputModes(void)
 // this is called once every 500ms
 void APP_TimeSlice500ms(void)
 {
+#ifdef ENABLE_FEAT_SERVICE_MODES
+    SERVICE_WatchTimeSlice500ms();
+#ifdef ENABLE_FMRADIO
+    if (gFmRadioMode && gScreenToDisplay == DISPLAY_MAIN)
+        gUpdateDisplay = true;   // broadcast FM's live signal
+#endif
+    if (gScreenToDisplay == DISPLAY_SYSINFO)
+        gUpdateDisplay = true;   // the battery reading
+#endif
     gNextTimeslice_500ms = false;
     bool exit_menu = false;
 
@@ -1698,7 +1845,7 @@ void APP_TimeSlice500ms(void)
     }
 
     if (!gCssBackgroundScan && gScanStateDir == SCAN_OFF && !SCANNER_IsScanning()
-#ifdef ENABLE_FMRADIO
+#ifdef ENABLE_FMRADIO_SCREEN
         && (gFM_ScanState == FM_SCAN_OFF || gAskToSave)
 #endif
 #ifdef ENABLE_AIRCOPY
@@ -1745,7 +1892,7 @@ void APP_TimeSlice500ms(void)
 
             GUI_DisplayType_t disp = DISPLAY_INVALID;
 
-#ifdef ENABLE_FMRADIO
+#ifdef ENABLE_FMRADIO_SCREEN
             if (gFmRadioMode && ! FUNCTION_IsRx()) {
                 disp = DISPLAY_FM;
             }
@@ -1771,7 +1918,9 @@ void APP_TimeSlice500ms(void)
         if (gFmRadioMode && !FUNCTION_IsRx()) {
             // switch back to FM radio mode
             FM_Start();
+#ifdef ENABLE_FMRADIO_SCREEN
             GUI_SelectNextDisplay(DISPLAY_FM);
+#endif
         }
 #endif
     }
@@ -2061,6 +2210,11 @@ static void ProcessKey(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
                 // transmit DTMF keys
             }
 
+#ifdef ENABLE_FEAT_SERVICE_MODES
+            if (SERVICE_OfChannel(gCurrentVfo->CHANNEL_SAVE) == SERVICE_MARINE)
+                goto Skip;   // no DTMF (or 1750 Hz) on marine voice channels
+#endif
+
             if (!bKeyPressed || bKeyHeld) {
                 if (!bKeyPressed) {
                     AUDIO_AudioPathOff();
@@ -2229,6 +2383,9 @@ Skip:
         gVFO_RSSI_bar_level[1]      = 0;
 
         gFlagReconfigureVfos        = false;
+#ifdef ENABLE_FEAT_SERVICE_MODES
+        gUpdateStatus               = true;   // mode icon / A-B glyphs depend on the channels
+#endif
 
         if (gMonitor)
             ACTION_Monitor();   // 1of11

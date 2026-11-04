@@ -100,7 +100,9 @@ bool              gSetting_KILLED;
 bool              gSetting_200TX;
 bool              gSetting_500TX;
 #endif
+#ifndef ENABLE_FEAT_SERVICE_MODES
 bool              gSetting_350EN;
+#endif
 uint8_t           gSetting_F_LOCK;
 bool              gSetting_ScrambleEnable;
 
@@ -124,7 +126,9 @@ enum BacklightOnRxTx_t gSetting_backlight_on_tx_rx;
     uint8_t       gSetting_set_eot = 0;
     bool          gSetting_set_lck = false;
     bool          gSetting_set_met = 0;
+#ifndef ENABLE_FEAT_SERVICE_MODES
     bool          gSetting_set_gui = 0;
+#endif
     #ifdef ENABLE_FEAT_F4HWN_NARROWER
         bool          gSetting_set_nfm = 0;
     #endif
@@ -262,7 +266,7 @@ bool              g_SquelchLost;
 volatile uint16_t gFlashLightBlinkCounter;
 
 bool              gFlagEndTransmission;
-uint8_t           gNextMrChannel;
+uint16_t          gNextMrChannel;
 ReceptionMode_t   gRxReceptionMode;
 
 bool              gRxVfoIsActive;
@@ -272,6 +276,9 @@ bool              gRxVfoIsActive;
 #endif
 bool              gKeyBeingHeld;
 bool              gPttIsPressed;
+#ifdef ENABLE_FEAT_SERVICE_MODES
+bool              gPttLatched;
+#endif
 uint8_t           gPttDebounceCounter;
 uint8_t           gMenuListCount;
 uint8_t           gBackup_CROSS_BAND_RX_TX;

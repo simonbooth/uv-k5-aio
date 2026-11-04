@@ -61,6 +61,9 @@
 #include "ui/lock.h"
 #include "ui/welcome.h"
 #include "ui/menu.h"
+#ifdef ENABLE_FEAT_SERVICE_MODES
+    #include "app/sysinfo.h"
+#endif
 void _putchar(__attribute__((unused)) char c)
 {
 
@@ -164,17 +167,20 @@ void Main(void)
         #ifdef ENABLE_FEAT_F4HWN
             gEeprom.KEY_LOCK = 0;
             SETTINGS_SaveSettings();
-            #ifndef ENABLE_VOX
+            #ifdef ENABLE_FEAT_SERVICE_MODES   // (no hidden section)
+            #elif !defined(ENABLE_VOX)
                 gMenuCursor = 67; // move to hidden section, fix me if change... !!! Remove VOX and Mic Bar
             #else
                 gMenuCursor = 68; // move to hidden section, fix me if change... !!!
             #endif
 
+            #ifndef ENABLE_FEAT_SERVICE_MODES
             #ifdef ENABLE_NOAA
                 gMenuCursor += 1; // move to hidden section, fix me if change... !!!
             #endif
             #ifdef ENABLE_FEAT_F4HWN_RESCUE_OPS
                 gMenuCursor += 1; // move to hidden section, fix me if change... !!!
+            #endif
             #endif
             gSubMenuSelection = gSetting_F_LOCK;
         #endif
@@ -194,6 +200,12 @@ void Main(void)
          KEYBOARD_Poll() != KEY_INVALID ||
          BootMode != BOOT_MODE_NORMAL)
     {   // keys are pressed
+#ifdef ENABLE_FEAT_SERVICE_MODES
+        if (BootMode == BOOT_MODE_RESET) {   // EXIT held: the setup screen already (EXIT's release waited out)
+            RESET_Open(false);
+            GUI_DisplayScreen();
+        } else
+#endif
         UI_DisplayReleaseKeys();
         BACKLIGHT_TurnOn();
 
@@ -221,12 +233,23 @@ void Main(void)
     }
     else
     {
-        UI_DisplayWelcome();
+#ifdef ENABLE_FEAT_SERVICE_MODES
+        const bool welcome = BootMode != BOOT_MODE_RESET;   // (EXIT held: straight to the setup screen)
+#else
+        const bool welcome = true;
+#endif
+        if (welcome)
+#ifdef ENABLE_FEAT_SERVICE_MODES
+            if (gEeprom.POWER_ON_DISPLAY_MODE != POWER_ON_DISPLAY_MODE_NONE)
+                SYSINFO_Display();   // (the welcome screen: SysInf)
+#else
+            UI_DisplayWelcome();
+#endif
 
         BACKLIGHT_TurnOn();
 
 #ifdef ENABLE_FEAT_F4HWN
-        if (gEeprom.POWER_ON_DISPLAY_MODE != POWER_ON_DISPLAY_MODE_NONE && gEeprom.POWER_ON_DISPLAY_MODE != POWER_ON_DISPLAY_MODE_SOUND)
+        if (welcome && gEeprom.POWER_ON_DISPLAY_MODE != POWER_ON_DISPLAY_MODE_NONE && gEeprom.POWER_ON_DISPLAY_MODE != POWER_ON_DISPLAY_MODE_SOUND)
 #else
         if (gEeprom.POWER_ON_DISPLAY_MODE != POWER_ON_DISPLAY_MODE_NONE)
 #endif

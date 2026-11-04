@@ -34,6 +34,8 @@
 #include "helper/battery.h"
 #include "misc.h"
 #include "radio.h"
+#include "app/fm.h"
+#include "service.h"
 #include "settings.h"
 #include "ui/menu.h"
 
@@ -42,11 +44,16 @@ VFO_Info_t    *gRxVfo;
 VFO_Info_t    *gCurrentVfo;
 DCS_CodeType_t gCurrentCodeType;
 VfoState_t     VfoState[2];
+#if defined(ENABLE_FMRADIO) && !defined(ENABLE_FMRADIO_SCREEN)
+#endif
 
 const char gModulationStr[MODULATION_UKNOWN][4] = {
     [MODULATION_FM]="FM",
     [MODULATION_AM]="AM",
     [MODULATION_USB]="USB",
+#if defined(ENABLE_FMRADIO) && !defined(ENABLE_FMRADIO_SCREEN)
+    [MODULATION_BFM]="WFM",   // (CHIRP's name for broadcast FM)
+#endif
 
 #ifdef ENABLE_BYP_RAW_DEMODULATORS
     [MODULATION_BYP]="BYP",
@@ -106,16 +113,20 @@ bool RADIO_CheckValidChannel(uint16_t channel, bool checkScanList, uint8_t scanL
 
     // I don't understand what this code is for...
     
+#ifdef ENABLE_FEAT_SERVICE_MODES   // no scan-list priority channels: plain list members
+    return true;
+#else
     const uint8_t PriorityCh1 = gEeprom.SCANLIST_PRIORITY_CH1[scanList - 1];
     const uint8_t PriorityCh2 = gEeprom.SCANLIST_PRIORITY_CH2[scanList - 1];
 
     return PriorityCh1 != channel && PriorityCh2 != channel;
+#endif
 }
 
-uint8_t RADIO_FindNextChannel(uint8_t Channel, int8_t Direction, bool bCheckScanList, uint8_t VFO)
+uint16_t RADIO_FindNextChannel(uint16_t Channel, int8_t Direction, bool bCheckScanList, uint8_t VFO)
 {
     for (unsigned int i = 0; IS_MR_CHANNEL(i); i++, Channel += Direction) {
-        if (Channel == 0xFF) {
+        if (Channel == 0xFFFF) {
             Channel = MR_CHANNEL_LAST;
         } else if (!IS_MR_CHANNEL(Channel)) {
             Channel = MR_CHANNEL_FIRST;
@@ -126,10 +137,10 @@ uint8_t RADIO_FindNextChannel(uint8_t Channel, int8_t Direction, bool bCheckScan
         }
     }
 
-    return 0xFF;
+    return 0xFFFF;
 }
 
-void RADIO_InitInfo(VFO_Info_t *pInfo, const uint8_t ChannelSave, const uint32_t Frequency)
+void RADIO_InitInfo(VFO_Info_t *pInfo, const uint16_t ChannelSave, const uint32_t Frequency)
 {
     memset(pInfo, 0, sizeof(*pInfo));
 
@@ -142,6 +153,7 @@ void RADIO_InitInfo(VFO_Info_t *pInfo, const uint8_t ChannelSave, const uint32_t
     pInfo->CHANNEL_SAVE             = ChannelSave;
     pInfo->FrequencyReverse         = false;
     pInfo->TX_LOCK                  = true;
+    pInfo->TX_OFF                   = false;
     pInfo->OUTPUT_POWER             = OUTPUT_POWER_LOW1;
     pInfo->freq_config_RX.Frequency = Frequency;
     pInfo->freq_config_TX.Frequency = Frequency;
@@ -149,7 +161,12 @@ void RADIO_InitInfo(VFO_Info_t *pInfo, const uint8_t ChannelSave, const uint32_t
     pInfo->pTX                      = &pInfo->freq_config_TX;
     pInfo->Compander                = 0;  // off
 
+#ifdef ENABLE_FEAT_SERVICE_MODES
+    pInfo->BUSY_CHANNEL_LOCK        = true;   // (on by default)
+    if (pInfo->Band == BAND2_108MHz)   // the airband
+#else
     if (ChannelSave == (FREQ_CHANNEL_FIRST + BAND2_108MHz))
+#endif
         pInfo->Modulation = MODULATION_AM;
     else
         pInfo->Modulation = MODULATION_FM;
@@ -169,7 +186,7 @@ void RADIO_ConfigureChannel(const unsigned int VFO, const unsigned int configure
             gEeprom.ScreenChannel[VFO] = FREQ_CHANNEL_FIRST + BAND6_400MHz;
     }
 
-    uint8_t channel = gEeprom.ScreenChannel[VFO];
+    uint16_t channel = gEeprom.ScreenChannel[VFO];
 
     if (IS_VALID_CHANNEL(channel)) {
 #ifdef ENABLE_NOAA
@@ -187,9 +204,27 @@ void RADIO_ConfigureChannel(const unsigned int VFO, const unsigned int configure
         }
 #endif
 
+#ifdef ENABLE_FEAT_SERVICE_MODES
+        if (IS_SVC_CHANNEL(channel)) {
+            channel = SERVICE_ValidateChannel(channel);
+            if (!SERVICE_ChannelVisible(channel)) {   // not licensed (any more): the next one that
+                channel = SERVICE_StepChannel(channel, 1);   // is, none: the VFO
+                gRequestSaveVFO = true;
+                if (!SERVICE_ChannelVisible(channel)) {
+                    gEeprom.ScreenChannel[VFO] = gEeprom.FreqChannel[VFO];
+                    RADIO_ConfigureChannel(VFO, configure);
+                    return;
+                }
+            }
+            gEeprom.ScreenChannel[VFO] = channel;
+            SERVICE_ConfigureVfo(pVfo, channel);
+            return;
+        }
+#endif
+
         if (IS_MR_CHANNEL(channel)) {
             channel = RADIO_FindNextChannel(channel, RADIO_CHANNEL_UP, false, VFO);
-            if (channel == 0xFF) {
+            if (channel == 0xFFFF) {
                 channel                    = gEeprom.FreqChannel[VFO];
                 gEeprom.ScreenChannel[VFO] = gEeprom.FreqChannel[VFO];
             }
@@ -209,8 +244,12 @@ void RADIO_ConfigureChannel(const unsigned int VFO, const unsigned int configure
             gEeprom.ScreenChannel[VFO] = channel;
         }
 
+#ifdef ENABLE_FEAT_SERVICE_MODES
+        SERVICE_InitSlotVfo(VFO, channel);   // a slot not used yet
+#else
         uint8_t bandIdx = channel - FREQ_CHANNEL_FIRST;
         RADIO_InitInfo(pVfo, channel, frequencyBandTable[bandIdx].lower);
+#endif
         return;
     }
 
@@ -229,10 +268,16 @@ void RADIO_ConfigureChannel(const unsigned int VFO, const unsigned int configure
         bParticipation3 = att.scanlist3;
     }
     else {
+#ifndef ENABLE_FEAT_SERVICE_MODES   // (a slot's band: by its frequency, below)
         band = channel - FREQ_CHANNEL_FIRST;
         bParticipation1 = true;
         bParticipation2 = true;
         bParticipation3 = true;
+#else   // in no group: a memory saved from it starts in none (groups: CHIRP's Banks)
+        bParticipation1 = false;
+        bParticipation2 = false;
+        bParticipation3 = false;
+#endif
     }
 
     pVfo->Band                    = band;
@@ -245,7 +290,11 @@ void RADIO_ConfigureChannel(const unsigned int VFO, const unsigned int configure
     if (IS_MR_CHANNEL(channel))
         base = channel * 16;
     else
+#ifdef ENABLE_FEAT_SERVICE_MODES
+        base = SETTINGS_VfoSlotAddr(channel - FREQ_CHANNEL_FIRST, VFO);
+#else
         base = 0x0C80 + ((channel - FREQ_CHANNEL_FIRST) * 32) + (VFO * 16);
+#endif
 
     if (configure == VFO_CONFIGURE_RELOAD || IS_FREQ_CHANNEL(channel))
     {
@@ -278,6 +327,9 @@ void RADIO_ConfigureChannel(const unsigned int VFO, const unsigned int configure
         pVfo->SCRAMBLING_TYPE = tmp;
 #else
         pVfo->SCRAMBLING_TYPE = 0;
+#endif
+#ifdef ENABLE_FEAT_SERVICE_MODES
+        pVfo->SvcFlags = tmp == 0xFF ? 0u : tmp;   // (erased: none)
 #endif
 
         pVfo->freq_config_RX.CodeType = (data[2] >> 0) & 0x0F;
@@ -332,8 +384,13 @@ void RADIO_ConfigureChannel(const unsigned int VFO, const unsigned int configure
             pVfo->FrequencyReverse  = false;
             pVfo->CHANNEL_BANDWIDTH = BK4819_FILTER_BW_WIDE;
             pVfo->OUTPUT_POWER      = OUTPUT_POWER_LOW1;
+#ifdef ENABLE_FEAT_SERVICE_MODES
+            pVfo->BUSY_CHANNEL_LOCK = true;    // (on by default; CHIRP sets it)
+#else
             pVfo->BUSY_CHANNEL_LOCK = false;
+#endif
             pVfo->TX_LOCK = true;
+            pVfo->TX_OFF  = false;
         }
         else
         {
@@ -343,6 +400,7 @@ void RADIO_ConfigureChannel(const unsigned int VFO, const unsigned int configure
             pVfo->OUTPUT_POWER      =   ((d4 >> 2) & 7u);
             pVfo->BUSY_CHANNEL_LOCK = !!((d4 >> 5) & 1u);
             pVfo->TX_LOCK           = !!((d4 >> 6) & 1u);
+            pVfo->TX_OFF            = !!((d4 >> 7) & 1u);
         }
 
         if (data[5] == 0xFF)
@@ -383,8 +441,24 @@ void RADIO_ConfigureChannel(const unsigned int VFO, const unsigned int configure
 
     uint32_t frequency = pVfo->freq_config_RX.Frequency;
 
+#ifdef ENABLE_FEAT_SERVICE_MODES
+    if (IS_FREQ_CHANNEL(channel) && SERVICE_SlotOf(frequency) != channel - FREQ_CHANNEL_FIRST) {
+        SERVICE_InitSlotVfo(VFO, channel);   // another band's frequency (or region): from scratch
+        return;
+    }
+#endif
+#if defined(ENABLE_FMRADIO) && !defined(ENABLE_FMRADIO_SCREEN)
+    if (pVfo->Modulation == MODULATION_BFM && !FM_IS_BROADCAST(frequency))
+        pVfo->Modulation = MODULATION_FM;   // broadcast FM only in the broadcast band
+    if (pVfo->Modulation == MODULATION_BFM)
+        pVfo->StepFrequency = 10000;
+#endif
+
     // fix previously set incorrect band
     band = FREQUENCY_GetBand(frequency);
+#ifdef ENABLE_FEAT_SERVICE_MODES
+    pVfo->Band = band;   // the radio band (calibration) by the frequency, slots or not
+#endif
 
     if (frequency < frequencyBandTable[band].lower)
         frequency = frequencyBandTable[band].lower;
@@ -452,7 +526,8 @@ void RADIO_ConfigureSquelchAndOutputPower(VFO_Info_t *pInfo)
     FREQUENCY_Band_t Band = FREQUENCY_GetBand(pInfo->pRX->Frequency);
     uint16_t Base = (Band < BAND4_174MHz) ? 0x1E60 : 0x1E00;
 
-    if (gEeprom.SQUELCH_LEVEL == 0)
+    const uint8_t sql = SQUELCH_OF(pInfo == &gEeprom.VfoInfo[1]);   // this VFO's level
+    if (sql == 0)
     {   // squelch == 0 (off)
         pInfo->SquelchOpenRSSIThresh    = 0;     // 0 ~ 255
         pInfo->SquelchOpenNoiseThresh   = 127;   // 127 ~ 0
@@ -464,7 +539,7 @@ void RADIO_ConfigureSquelchAndOutputPower(VFO_Info_t *pInfo)
     }
     else
     {   // squelch >= 1
-        Base += gEeprom.SQUELCH_LEVEL;                                        // my eeprom squelch-1
+        Base += sql;                                                          // my eeprom squelch-1
                                                                               // VHF   UHF
         EEPROM_ReadBuffer(Base + 0x00, &pInfo->SquelchOpenRSSIThresh,    1);  //  50    10
         EEPROM_ReadBuffer(Base + 0x10, &pInfo->SquelchCloseRSSIThresh,   1);  //  40     5
@@ -507,6 +582,16 @@ void RADIO_ConfigureSquelchAndOutputPower(VFO_Info_t *pInfo)
         pInfo->SquelchOpenNoiseThresh   = (noise_open   > 127) ? 127 : noise_open;
         pInfo->SquelchCloseNoiseThresh  = (noise_close  > 127) ? 127 : noise_close;
     }
+
+#if defined(ENABLE_FMRADIO) && !defined(ENABLE_FMRADIO_SCREEN)
+    if (pInfo->Modulation == MODULATION_BFM) {
+        // broadcast FM plays on the FM chip: the BK4819 squelch never opens on it, so
+        // with both VFOs on broadcast FM it cannot interrupt the station
+        pInfo->SquelchOpenRSSIThresh  = pInfo->SquelchCloseRSSIThresh  = 255;
+        pInfo->SquelchOpenNoiseThresh = pInfo->SquelchCloseNoiseThresh = 0;
+        pInfo->SquelchOpenGlitchThresh = pInfo->SquelchCloseGlitchThresh = 0;
+    }
+#endif
 
     // *******************************
     // output power
@@ -675,6 +760,10 @@ void RADIO_SelectVfos(void)
 {
     // if crossband without DW is used then RX_VFO is the opposite to the TX_VFO
     gEeprom.RX_VFO = (gEeprom.CROSS_BAND_RX_TX == CROSS_BAND_OFF || gEeprom.DUAL_WATCH != DUAL_WATCH_OFF) ? gEeprom.TX_VFO : !gEeprom.TX_VFO;
+#if defined(ENABLE_FMRADIO) && !defined(ENABLE_FMRADIO_SCREEN)
+    if (gEeprom.VfoInfo[gEeprom.RX_VFO].Modulation == MODULATION_BFM)
+        gEeprom.RX_VFO = !gEeprom.RX_VFO;   // that one plays on the FM chip: the BK4819 listens on the other
+#endif
 
     gTxVfo = &gEeprom.VfoInfo[gEeprom.TX_VFO];
     gRxVfo = &gEeprom.VfoInfo[gEeprom.RX_VFO];
@@ -687,7 +776,7 @@ void RADIO_SetupRegisters(bool switchToForeground)
     BK4819_FilterBandwidth_t Bandwidth = gRxVfo->CHANNEL_BANDWIDTH;
 
     #ifdef ENABLE_FEAT_F4HWN_NARROWER
-        if(Bandwidth == BK4819_FILTER_BW_NARROW && gSetting_set_nfm == 1)
+        if(Bandwidth == BK4819_FILTER_BW_NARROW && NARROWER_ON(gRxVfo))
         {
             Bandwidth = BK4819_FILTER_BW_NARROWER;
         }
@@ -777,6 +866,16 @@ void RADIO_SetupRegisters(bool switchToForeground)
             uint8_t CodeType = gRxVfo->pRX->CodeType;
             uint8_t Code     = gRxVfo->pRX->Code;
 
+#ifdef ENABLE_FEAT_SERVICE_MODES
+            if (SERVICE_WxAlertGate(gRxVfo)) {   // weather watch: open only on the 1050 Hz alarm
+                BK4819_SetCTCSSFrequency(2625);   // 1050 Hz / 4: the chip's 1050 Hz detection mode
+                InterruptMask = 0
+                    | BK4819_REG_3F_CTCSS_FOUND
+                    | BK4819_REG_3F_CTCSS_LOST
+                    | BK4819_REG_3F_SQUELCH_FOUND
+                    | BK4819_REG_3F_SQUELCH_LOST;
+            } else
+#endif
             switch (CodeType)
             {
                 default:
@@ -872,6 +971,10 @@ void RADIO_SetupRegisters(bool switchToForeground)
 
     if (switchToForeground)
         FUNCTION_Select(FUNCTION_FOREGROUND);
+
+#if defined(ENABLE_FMRADIO) && !defined(ENABLE_FMRADIO_SCREEN)
+    FM_Sync();   // broadcast FM on a VFO: (re)start it, the speaker back on
+#endif
 }
 
 #ifdef ENABLE_NOAA
@@ -924,7 +1027,7 @@ void RADIO_SetTxParameters(void)
     BK4819_FilterBandwidth_t Bandwidth = gCurrentVfo->CHANNEL_BANDWIDTH;
 
     #ifdef ENABLE_FEAT_F4HWN_NARROWER
-        if(Bandwidth == BK4819_FILTER_BW_NARROW && gSetting_set_nfm == 1)
+        if(Bandwidth == BK4819_FILTER_BW_NARROW && NARROWER_ON(gCurrentVfo))
         {
             Bandwidth = BK4819_FILTER_BW_NARROWER;
         }
@@ -1075,6 +1178,12 @@ void RADIO_PrepareTX(void)
 {
     VfoState_t State = VFO_STATE_NORMAL;  // default to OK to TX
 
+#ifdef ENABLE_FEAT_SERVICE_MODES
+    SERVICE_WatchStop();   // transmitting ends the watch; TX stays where it is
+    gEeprom.RX_VFO = gEeprom.TX_VFO;   // PTT is always the solid-border VFO
+    gRxVfo         = gTxVfo;
+    gRxVfoIsActive = false;
+#else   // (the watch just ended above)
     if (gEeprom.DUAL_WATCH != DUAL_WATCH_OFF)
     {   // dual-RX is enabled
 
@@ -1092,20 +1201,27 @@ void RADIO_PrepareTX(void)
         gDualWatchActive = false;
         gUpdateStatus    = true;
     }
+#endif
 
     RADIO_SelectCurrentVfo();
 
-#ifdef ENABLE_FEAT_F4HWN
-        if(TX_freq_check(gCurrentVfo->pTX->Frequency) != 0 && gCurrentVfo->TX_LOCK == true
+#if defined(ENABLE_FEAT_SERVICE_MODES)
+        if ((!SERVICE_CanTx(gCurrentVfo)   // blocked (unless TX Any) or power OFF
+    #if defined(ENABLE_ALARM) || defined(ENABLE_TX1750)
+            && gAlarmState != ALARM_STATE_SITE_ALARM
+    #endif
+#elif defined(ENABLE_FEAT_F4HWN)
+        if((TX_freq_check(gCurrentVfo->pTX->Frequency) != 0 && gCurrentVfo->TX_LOCK == true
     #if defined(ENABLE_ALARM) || defined(ENABLE_TX1750)
             && gAlarmState != ALARM_STATE_SITE_ALARM
     #endif
 #else
-        if(TX_freq_check(gCurrentVfo->pTX->Frequency) != 0
+        if((TX_freq_check(gCurrentVfo->pTX->Frequency) != 0
     #if defined(ENABLE_ALARM) || defined(ENABLE_TX1750)
             && gAlarmState != ALARM_STATE_SITE_ALARM
     #endif
 #endif
+        )
     ){
         // TX frequency not allowed
         State = VFO_STATE_TX_DISABLE;
@@ -1124,7 +1240,7 @@ void RADIO_PrepareTX(void)
         State = VFO_STATE_VOLTAGE_HIGH;
     }
 #ifndef ENABLE_TX_WHEN_AM
-    else if (gCurrentVfo->Modulation != MODULATION_FM) {
+    else if (gCurrentVfo->Modulation != MODULATION_FM) {   // (broadcast FM too: receive only)
         // not allowed to TX if in AM mode
         State = VFO_STATE_TX_DISABLE;
     }

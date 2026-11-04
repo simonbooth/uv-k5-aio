@@ -28,6 +28,7 @@
 #include "driver/eeprom.h"
 #include "driver/gpio.h"
 #include "driver/system.h"
+#include "service.h"
 #include "dtmf.h"
 #include "external/printf/printf.h"
 #include "misc.h"
@@ -43,6 +44,7 @@ uint8_t           gDTMF_PreviousIndex  = 0;
 
 char              gDTMF_RX_live[20];
 uint8_t           gDTMF_RX_live_timeout = 0;
+uint8_t           gDTMF_RX_live_vfo;   // VFO it was received on
 
 #ifdef ENABLE_DTMF_CALLING
 char              gDTMF_RX[17];
@@ -415,6 +417,12 @@ void DTMF_HandleRequest(void)
 
 void DTMF_Reply(void)
 {
+#ifdef ENABLE_FEAT_SERVICE_MODES
+    if (SERVICE_OfChannel(gCurrentVfo->CHANNEL_SAVE) == SERVICE_MARINE) {   // no DTMF on marine
+        gDTMF_ReplyState = DTMF_REPLY_NONE;
+        return;
+    }
+#endif
     uint16_t    Delay;
 #ifdef ENABLE_DTMF_CALLING
     char        String[23];
